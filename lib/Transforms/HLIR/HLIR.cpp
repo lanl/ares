@@ -8,14 +8,16 @@
 //===----------------------------------------------------------------------===//
 //
 /// This file contains proof-of-concept passes for the HLIR project at LANL.
-/// Currently, it contains the following passes...
+/// Currently, it contains a single pass (HLIRLower) which will lower HLIR
+/// into LLVM IR. This lowering can currently handle the following HLIR
+/// constructs...
 /// - LaunchCall
 ///   Allows function calls with the hlir.launch metadata node to be wrapped
 ///   into pthreads, not unlike go routines in the go language.
 //
 //===----------------------------------------------------------------------===//
-
 #include <list>
+#include <map>
 
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/IRBuilder.h"
@@ -37,22 +39,27 @@ namespace {
   ///         the codegen facilities in llvm. That means that this would
   ///         be an abstract class, and would be made concrete by various
   ///         runtime generators.
-  class LaunchCall : public BasicBlockPass {
+  class HLIRLower : public ModulePass {
   private:
+    /// Common Functions
     Function *pthread_create;
 
+    /// Common Types
     PointerType *VoidPtrTy;
     PointerType *PthreadAttrPtrTy;
     PointerType *Int64PtrTy;
     PointerType *StartFTy;
     FunctionType *PthreadTy;
 
+    /// Maps a function to a wrapped version of that function which is
+    /// able to be called by llvm.
+    std::map<Function*, Function*> FuncToWrapFunc;
+    std::map<Function*, StructType*> FuncToWrapArg;
+
     /// Initialize all types that are used in this pass (really just for
     /// convenience).
     void initTypes(Module &M) {
       /*
-        Taken from `man pthread_create`:
-
         int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
         void *(*start_routine) (void *), void *arg);
       */
@@ -84,9 +91,9 @@ namespace {
     /// not the module was changed.
     ///
     /// TODO: Currently always makes the declaration.
-    bool initPthreadCreate(Module &M) {
+    bool initPthreadCreate(Module *M) {
       this->pthread_create = Function::Create(PthreadTy, Function::ExternalLinkage,
-                                              "pthread_create", &M);
+                                              "pthread_create", M);
       return true;
     }
 
@@ -102,6 +109,8 @@ namespace {
       return WrapTy;
     }
 
+
+    /// Declare, construct, and return a Function wrapped to be launched by a pthread.
     Function *makeWrapperFunction(Module *M, Function *Func, StructType* WrapTy) {
       Type *Arg[1]          = { this->VoidPtrTy };
       FunctionType *FuncTy  = FunctionType::get(this->VoidPtrTy, Arg, false);
@@ -142,90 +151,93 @@ namespace {
       return WrappedFunc;
     }
 
-  public:
-    static char ID;
-    LaunchCall() : BasicBlockPass(ID) {};
+    bool LowerLaunchCall(Module *M, CallInst *I){
+      IRBuilder<> B(I);
+      Function *F = I->getCalledFunction();
+      Function *WrappedF;
+      StructType *WrappedArgTy;
 
-    /// Before the pass is run, a declaration of pthread_create will be made.
-    /// This function will also initialize some commonly used types.
-    ///
-    /// NOTE: This happens here because BasicBlockPass's are not allowed to
-    ///       make new global elements, but initialize rs are.
-    /// TODO: Only make the function if it is needed. This will probably
-    ///       require an analysis pass (which we already need).
-    /// TODO: Right now the type of pthread_attr_t is hard coded and not
-    ///       portable. This is probably acceptable as a proof-of-concept.
-    /// TODO: Currently wraps every function, just for shits and giggles.
-    bool doInitialization(Module &M) override {
-      bool Changed = false;
-      this->initTypes(M);
-      Changed |= this->initPthreadCreate(M);
-
-      // Wrap every living function on the planet.
-      // Stupid copy because I'm lazy
-      std::vector<Function*> Funcs;
-      for(auto &Func : M.functions()) {
-        Funcs.push_back(&Func);
+      // Get wrapped function, or wrap function if it does not currently have
+      // a wrapped form
+      if( this->FuncToWrapFunc.find(F) == this->FuncToWrapFunc.end() ) {
+        WrappedArgTy = makeArgStructType(F);
+        this->FuncToWrapArg.emplace(F, WrappedArgTy);
+        this->FuncToWrapFunc.emplace(F, makeWrapperFunction(M, F, WrappedArgTy));
       }
 
-      for(auto Func : Funcs){
-        StructType *Ty = makeArgStructType(Func);
-        makeWrapperFunction(&M, Func, Ty);
+      WrappedF     = this->FuncToWrapFunc[F];
+      WrappedArgTy = this->FuncToWrapArg[F];
+      if( !this->pthread_create ) {
+        initPthreadCreate(M);
+
       }
 
-      return Changed;
+      // Alloc a thread, pack args, launch pthread, remove old instruction.
+      Value *ThreadPtr = B.CreateAlloca(Type::getInt64Ty(M->getContext()));
+      Value *ArgPtr    = B.CreateAlloca(WrappedArgTy);
+      int ArgId = 0;
+      for(auto &Arg : I->arg_operands()) {
+        Value *GEPIndex[2] = {ConstantInt::get(Type::getInt64Ty(M->getContext()),
+                                               0),
+                              ConstantInt::get(Type::getInt32Ty(M->getContext()),
+                                               ArgId)};
+        B.CreateStore(Arg, B.CreateGEP(ArgPtr, GEPIndex));
+        ArgId++;
+      }
+      Value *PThreadArgs[4] = {ThreadPtr,
+                               ConstantPointerNull::get(this->PthreadAttrPtrTy),
+                               WrappedF,
+                               B.CreateBitCast(ArgPtr, this->VoidPtrTy)};
+      B.CreateCall(this->pthread_create, PThreadArgs);
+      I->eraseFromParent();
+
+      return true;
     }
 
-    /// This function represents the actual pass. It will look for any call
+  public:
+    static char ID;
+    HLIRLower() : ModulePass(ID) {};
+
+    /// This function represents the actual pass.
+    /// CURRENT STATE:
+    ///  It will look for any call
     /// instruction with the `hlir.launch` metadata node attached, and will
     /// replace that call with the launching of a pthread which will run the
     /// function.
     ///
-    /// TODO: Actually wrap ANY function into a proper work function.
     /// TODO: Actually look for `hlir.launch` metadata, as opposed to any
     ///       kind of metadata.
     /// TODO: Possibly look into actually checking if the pthread worked?
     ///       That would require actually making new basic blocks...
-    bool runOnBasicBlock(BasicBlock& BB) override {
+    bool runOnModule(Module& M) override {
       bool Changed = false;
       std::list<Instruction*> LaunchCalls;
+      this->initTypes(M);
 
-      // Go over every instruction in the block, and search for relevant calls.
-      // NOTE: I first gather, then operate so that I can delete the instructions
-      //       and continue to iterate.
-      for(auto &instruc : BB) {
-        if(isa<CallInst>(instruc) && instruc.hasMetadata()) {
-          LaunchCalls.push_back(&instruc);
+      // For Every Function
+      for(auto &F : M) {
+        // For Every Basic Block
+        for(auto &BB : F) {
+          // For Every Instruction
+          for(auto &I : BB) {
+            // NOTE: I first gather, then operate so that I can delete the
+            // instructions and continue to iterate.
+            if(isa<CallInst>(I) && I.hasMetadata()) {
+              LaunchCalls.push_back(&I);
+            }
+          }
         }
       }
 
-      // For every launch call, call -> alloc thread, call pthread.
-      for(auto &instruc : LaunchCalls) {
-        instruc->dump();
-        Function *CalledF = cast<CallInst>(instruc)->getCalledFunction();
-        AllocaInst *ThreadPtr = new AllocaInst(Type::getInt64Ty(BB.getContext()),
-                                            "", instruc);
-
-        assert(CalledF->getType() == this->StartFTy &&
-               "Currently we can only launch functions which are already of "
-               "worker type!");
-
-        Value *Args[4] = {ThreadPtr,
-                          ConstantPointerNull::get(this->PthreadAttrPtrTy),
-                          CalledF,
-                          ConstantPointerNull::get(this->VoidPtrTy)};
-        CallInst *call = CallInst::Create(this->pthread_create, Args, "", instruc);
-
-        instruc->eraseFromParent();
-        Changed = true;
+      for(auto &I : LaunchCalls) {
+        Changed |= LowerLaunchCall(&M, cast<CallInst>(I));
       }
 
       return Changed;
     }
 
-  }; // class LaunchCall
+  }; // class HLIRLower
 } // namespace
 
-
-char LaunchCall::ID = 0;
-static RegisterPass<LaunchCall> X("launch", "Task Launch Pass");
+char HLIRLower::ID = 0;
+static RegisterPass<HLIRLower> X("hlir", "Lower HLIR to LLIR");
