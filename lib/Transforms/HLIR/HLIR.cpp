@@ -196,7 +196,7 @@ namespace {
 
   public:
     static char ID;
-    HLIRLower() : ModulePass(ID) {};
+    HLIRLower() : pthread_create(nullptr), ModulePass(ID) {};
 
     /// This function represents the actual pass.
     /// CURRENT STATE:
