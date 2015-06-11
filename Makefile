@@ -28,7 +28,7 @@ CPP = clang++ --std=c++11
 CPPFLAGS   = -Wall -Wextra
 CPPFLAGS  += $(FLAG)
 LIB       :=
-INC       := -I include
+INC       := -I include -I lib/PEGTL -I lib/PEGTL/pegtl
 
 # Directories and Files
 SRCDIR   := src
