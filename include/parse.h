@@ -1,3 +1,4 @@
+// -*-c++-*-
 /**
  * Author: Tyler (Izzy) Cecil
  * Date: Fri Jun 12 16:58:31 MDT 2015
@@ -137,7 +138,7 @@ namespace parse {
   struct expr   : sor< seq< name, pad< bin_op_6, space >, expr >, expr_5 > {};
 
   ////////////////////////////////////////////////////////////////
-  // Statements
+  // Functions and Blocks
   ////////////////////////////////////////////////////////////////
   struct prototype
     : seq< pad< name, space >,
@@ -145,8 +146,7 @@ namespace parse {
            pad_opt< list< name, one< ',' >, space >, space >,
            one< ')' > > {};
 
-  struct statement
-    : failure {};
+  struct statement;
 
   struct block : seq<
     one< '{' >,
@@ -155,8 +155,23 @@ namespace parse {
 
   struct func : seq< pad< prototype, space >, block > {};
 
+
+  ////////////////////////////////////////////////////////////////
+  // Statements
+  ////////////////////////////////////////////////////////////////
+  struct ret_stat : seq< key_return, pad< expr, space>,  one< ';' > > {};
+  struct extern_stat : seq< key_extern, pad< prototype, space>, one< ';' > > {};
+
+  struct if_stat : seq< key_if,
+                        pad< one< '('>, space>,
+                        expr,
+                        pad< one< ')' >, space >,
+                        block, space > {};
+
+  struct statement : sor< ret_stat, extern_stat, if_stat > {};
+
   struct grammar
-    : must< func , eof > {};
+    : must< star< pad < sor< func, extern_stat >, space > > , eof > {};
 
   template< typename Rule >
   struct action
