@@ -163,13 +163,16 @@ namespace parse {
   struct extern_stat : seq< key_extern, pad< prototype, space>, one< ';' > > {};
 
   struct if_stat : seq< key_if,
-                        pad< one< '('>, space>,
+                        pad< one< '(' >, space >,
                         expr,
                         pad< one< ')' >, space >,
                         block, space > {};
 
   struct statement : sor< ret_stat, extern_stat, if_stat > {};
 
+  ////////////////////////////////////////////////////////////////
+  // Root Grammar Node
+  ////////////////////////////////////////////////////////////////
   struct grammar
     : must< star< pad < sor< func, extern_stat >, space > > , eof > {};
 
