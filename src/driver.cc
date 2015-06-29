@@ -9,6 +9,7 @@
  *
  */
 #include <iostream>
+#include <stack>
 #include <string>
 
 #include <pegtl.hh>
@@ -19,8 +20,10 @@
 int main( int argc, char * argv[] )
 {
   if ( argc > 1 ) {
+    // std::stack parse_stack();
+
     std::cout << argv[1] << std::endl;
-    pegtl::parse< parse::grammar,  parse::action >(1, argv);
+    pegtl::parse< parse::grammar,  parse::build_ast >(1, argv);
     std::cout << "That was a valid sentence!\n";
   }
 }

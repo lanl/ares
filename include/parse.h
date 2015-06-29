@@ -18,6 +18,7 @@
  */
 #pragma once
 
+#include <stack>
 #include <string>
 #include <iostream>
 
@@ -176,8 +177,106 @@ namespace parse {
   struct grammar
     : must< star< pad < sor< func, extern_stat >, space > > , eof > {};
 
+
+  ////////////////////////////////////////////////////////////////
+  // Parsing Actions
+  ////////////////////////////////////////////////////////////////
   template< typename Rule >
-  struct action
+  struct build_ast
     : pegtl::nothing< Rule > {};
+
+  template <> struct build_ast < num > {
+    static void apply( const pegtl::input & in ) {
+    }
+  };
+  template <> struct build_ast < name > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+
+  template <> struct build_ast < bin_op_1 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < bin_op_2 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < bin_op_3 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < bin_op_4 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < bin_op_5 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < bin_op_6 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+
+  template <> struct build_ast < call > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < expr_0 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < expr_1 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < expr_2 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < expr_3 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < expr_4 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < expr_5 > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < expr > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+
+  template <> struct build_ast < ret_stat > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+
+  template <> struct build_ast < prototype > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < extern_stat > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+
+  template <> struct build_ast < block > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < func > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
+  template <> struct build_ast < if_stat > {
+    static void apply( const pegtl::input & in ){
+    }
+  };
 
 } // namespace parse
