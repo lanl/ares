@@ -83,7 +83,7 @@ namespace parse {
   struct keyword : key< str_keyword > {};
 
   ////////////////////////////////////////////////////////////////
-  // Literals and identifiers
+  // literals and identifiers
   ////////////////////////////////////////////////////////////////
   struct num : seq <
     opt< sor< one< '+' >, one< '-' > > >,
@@ -153,7 +153,7 @@ namespace parse {
     star< pad< sor< statement, seq< expr, one< ';' > > >, space > >,
     one< '}' > > {};
 
-  struct func : seq< pad< prototype, space >, block > {};
+  struct func : seq< key_func, pad< prototype, space >, block > {};
 
 
   ////////////////////////////////////////////////////////////////
