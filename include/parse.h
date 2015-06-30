@@ -123,6 +123,7 @@ namespace parse {
   // Lower the number, lower in the tree
   ////////////////////////////////////////////////////////////////
   struct expr;
+
   struct call : seq< pad< name, space >,
                      one< '(' >,
                      pad_opt< list< expr, one< ',' >, space >, space >,
@@ -185,97 +186,125 @@ namespace parse {
   struct build_ast
     : pegtl::nothing< Rule > {};
 
+  template <> struct build_ast < grammar > {
+    static void apply( const pegtl::input & in ) {
+      std::cout << "GRAMMAR" << std::endl;
+    }
+  };
+
   template <> struct build_ast < num > {
     static void apply( const pegtl::input & in ) {
+      std::cout << "NUM: " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < name > {
     static void apply( const pegtl::input & in ){
+      std::cout << "NAME: " << in.string() << std::endl;
     }
   };
 
   template <> struct build_ast < bin_op_1 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "BIN_OP_1: " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < bin_op_2 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "BIN_OP_2: " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < bin_op_3 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "BIN_OP_3: " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < bin_op_4 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "BIN_OP_4: " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < bin_op_5 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "BIN_OP_5: " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < bin_op_6 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "BIN_OP_6: " << in.string() << std::endl;
     }
   };
 
   template <> struct build_ast < call > {
     static void apply( const pegtl::input & in ){
+      std::cout << "CALL: " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < expr_0 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "EXPR_0: " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < expr_1 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "EXPR_1 : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < expr_2 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "EXPR_2 : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < expr_3 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "EXPR_3 : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < expr_4 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "EXPR_4 : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < expr_5 > {
     static void apply( const pegtl::input & in ){
+      std::cout << "EXPR_5 : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < expr > {
     static void apply( const pegtl::input & in ){
+      std::cout << "EXPR : " << in.string() << std::endl;
     }
   };
 
   template <> struct build_ast < ret_stat > {
     static void apply( const pegtl::input & in ){
+      std::cout << "RET_STAT : " << in.string() << std::endl;
     }
   };
 
   template <> struct build_ast < prototype > {
     static void apply( const pegtl::input & in ){
+      std::cout << "PROTOTYPE : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < extern_stat > {
     static void apply( const pegtl::input & in ){
+      std::cout << "EXTERN_STAT : " << in.string() << std::endl;
     }
   };
 
   template <> struct build_ast < block > {
     static void apply( const pegtl::input & in ){
+      std::cout << "BLOCK : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < func > {
     static void apply( const pegtl::input & in ){
+      std::cout << "FUNC : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < if_stat > {
     static void apply( const pegtl::input & in ){
+      std::cout << "IF_STAT : " << in.string() << std::endl;
     }
   };
 
