@@ -13,9 +13,12 @@
 #include <string>
 
 #include <pegtl.hh>
+#include <pegtl/analyze.hh>
 
 #include "AST.h"
 #include "parse.h"
+
+const size_t issues_found = pegtl::analyze< parse::grammar >();
 
 int main( int argc, char * argv[] )
 {
@@ -24,6 +27,7 @@ int main( int argc, char * argv[] )
 
     std::cout << argv[1] << std::endl;
     pegtl::parse< parse::grammar,  parse::build_ast >(1, argv);
-    std::cout << "That was a valid sentence!\n";
+  } else {
+    std::cout << "ISSUES FOUND: " << issues_found << std::endl;
   }
 }
