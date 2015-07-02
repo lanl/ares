@@ -6,18 +6,12 @@
  *
  * This file outlines the AST for our toy language. There are three root classes
  * of note: `Expr` `Proto` and `Func`. This is modeled from the LLVM Kaleidoscope
- * tutorial (http://llvm.org/docs/tutorial/LangImpl2.html).
+ * tutorial (http://llvm.org/docs/tutorial/LangImpl2.HTML).
  *
- * TODO: I have not yet begun generating an AST from parsing, but I suspect this
- *       will be modified to have two root objects: `Expr` and `Statement`.
- *       Functions also currently only have one `Expr` in their body... this will
- *       likely need to be a vector.
- *
- * TODO: Classes should have an enum of what class they are, to allow for
- *       runtime class reflection.
  */
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -37,6 +31,15 @@ enum BinOp {
   kDiv,
 };
 
+std::string prefix(const std::string& label, int depth) {
+    std::stringstream sstm;
+    while(depth--) {
+      sstm << "\t";
+    }
+    sstm << label;
+    return sstm.str();
+}
+
 ////////////////////////////////////////////////////////////////
 // Root node types
 ////////////////////////////////////////////////////////////////
@@ -44,14 +47,17 @@ enum BinOp {
 struct AST {
   AST(NodeType type) : type(type) {};
   virtual ~AST() {};
-  virtual std::string string() = 0;
+
+  virtual void print(const std::string& label, int depth) = 0;
   NodeType type;
 };
+
 // Root Expression Type
 struct Expr    : AST {
   Expr(NodeType type) : AST(type) {};
   virtual ~Expr() {};
 };
+
 // Root Statement Type
 struct Stat : AST {
   Stat(NodeType type) : AST(type) {};
@@ -62,55 +68,54 @@ struct Stat : AST {
 // Expressions
 ////////////////////////////////////////////////////////////////
 struct NumExpr : Expr {
+  NumExpr() : Expr(kNum), val() {};
   NumExpr(double val) : Expr(kNum), val(val) {};
 
-  std::string string() {
-    std::stringstream sstm;
-    sstm << "NumExpr( " << val << ")";
-    return sstm.str();
+  void print(const std::string& label, int depth) {
+    std::cout << prefix(label, depth) << "NumExpr( " << val << " )" << std::endl;
   };
 
   double val;
 };
 
 struct NameExpr : Expr {
+  NameExpr() : Expr(kVar), name() {};
   NameExpr(const std::string &name) : Expr(kVar), name(name) {};
 
-  std::string string() {
-    std::stringstream sstm;
-    sstm << "NameExpr( " << name << ")";
-    return sstm.str();
+  void print(const std::string& label, int depth) {
+    std::cout << prefix(label, depth) << "NameExpr( " << name << " )" << std::endl;
   };
-
 
   std::string name;
 };
 
 struct BinExpr : Expr {
+  BinExpr() : Expr(kBin), lhs(nullptr), rhs(nullptr) {};
   BinExpr(BinOp op, Expr *lhs, Expr *rhs)
     : Expr(kBin), op(op), lhs(lhs), rhs(rhs) {};
 
   ~BinExpr() {delete lhs; delete rhs;};
 
-  std::string string() {
-    std::stringstream sstm;
-    sstm << "BinExpr( ";
+  void print(const std::string& label, int depth) {
+    std::cout << prefix(label, depth) << "BinExpr( ";
     switch(op) {
-    case kAdd : sstm << "+"; break;
-    case kSub : sstm << "-"; break;
-    case kMul : sstm << "*"; break;
-    case kDiv : sstm << "/"; break;
+    case kAdd : std::cout << "+"; break;
+    case kSub : std::cout << "-"; break;
+    case kMul : std::cout << "*"; break;
+    case kDiv : std::cout << "/"; break;
     }
-    sstm << ")";
-    return sstm.str();
-  };
+    std::cout << " )" << std::endl;
 
+    lhs->print("LHS -> ", depth + 1);
+    rhs->print("RHS -> ", depth + 1);
+  };
 
   BinOp op;
   Expr *lhs, *rhs;
 };
 
 struct CallExpr : Expr {
+  CallExpr() : Expr(kCall), callee(nullptr), args() {};
   CallExpr(NameExpr* callee, std::vector<Expr*> args)
     : Expr(kCall), callee(callee), args(args) {};
 
@@ -121,11 +126,20 @@ struct CallExpr : Expr {
     }
   };
 
+  void print(const std::string& label, int depth) {
+    std::cout << prefix(label, depth) << "CallExpr()" << std::endl;
+    callee->print("CALLEE -> ", depth + 1);
+    for(auto arg : args) {
+      arg->print("ARG -> ", depth + 1);
+    }
+  }
+
   NameExpr* callee;
   std::vector<Expr*> args;
 };
 
 struct Proto : AST {
+  Proto() : AST(kProto), name(nullptr), args() {};
   Proto(NameExpr* name, const std::vector<NameExpr*> &args)
     : AST(kProto), name(name), args(args) {};
 
@@ -136,10 +150,12 @@ struct Proto : AST {
     }
   };
 
-  std::string string() {
-    std::stringstream sstm;
-    sstm << "Proto()";
-    return sstm.str();
+  void print(const std::string& label, int depth) {
+    std::cout << prefix(label, depth) << "Proto()" << std::endl;
+    name->print("FUNC NAME -> ", depth + 1);
+    for(auto arg : args) {
+      arg->print("ARG -> ", depth + 1);
+    }
   };
 
   NameExpr* name;
@@ -148,6 +164,7 @@ struct Proto : AST {
 
 // Right now functions are single expressions. This is just for testing reasons.
 struct Func : AST {
+  Func() : AST(kFunc), proto(nullptr), body(nullptr) {};
   Func(Proto* proto, Expr* body) : AST(kFunc), proto(proto), body(body) {};
 
   ~Func() {
@@ -155,10 +172,10 @@ struct Func : AST {
     delete body;
   }
 
-  std::string string() {
-    std::stringstream sstm;
-    sstm << "Func()";
-    return sstm.str();
+  void print(const std::string& label, int depth) {
+    std::cout << prefix(label, depth) << "Func()" << std::endl;
+    proto->print("PROTO -> ", depth + 1);
+    body->print("BODY -> ", depth + 1);
   };
 
   Proto* proto;
