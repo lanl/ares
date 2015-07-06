@@ -81,12 +81,6 @@ struct Expr    : AST {
   virtual Value* codegen() = 0;
 };
 
-// Root Statement Type
-struct Stat : AST {
-  Stat(NodeType type) : AST(type) {};
-  virtual ~Stat() {};
-};
-
 ////////////////////////////////////////////////////////////////
 // Expressions
 ////////////////////////////////////////////////////////////////
