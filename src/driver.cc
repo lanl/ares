@@ -23,7 +23,7 @@ const size_t issues_found = pegtl::analyze< parse::grammar >();
 int main( int argc, char * argv[] )
 {
   if ( argc > 1 ) {
-    // std::stack parse_stack();
+    std::stack<AST*> parse_stack();
 
     std::cout << argv[1] << std::endl;
     pegtl::parse< parse::grammar,  parse::build_ast >(1, argv);

@@ -102,7 +102,6 @@ namespace parse {
   struct op_sub : one< '-' > {};
   struct op_mul : one< '*' > {};
   struct op_div : one< '/' > {};
-  struct op_not : one< '!' > {};
   struct op_eq  : string< '=', '=' > {};
   struct op_ass : one< '=' > {};
   struct op_neq : string< '!', '=' > {};
@@ -177,25 +176,40 @@ namespace parse {
     : pegtl::nothing< Rule > {};
 
   template <> struct build_ast < grammar > {
-    static void apply( const pegtl::input & in ) {
-      std::cout << "GRAMMAR" << std::endl;
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack) {
+      // Print the AST
+      stack.top()->print();
     }
   };
 
   template <> struct build_ast < num > {
-    static void apply( const pegtl::input & in ) {
-      std::cout << "NUM: " << in.string() << std::endl;
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack) {
+      stack.push(new NumExpr(stod(in.string())));
     }
   };
   template <> struct build_ast < name > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "NAME: " << in.string() << std::endl;
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
+      stack.push(new NameExpr(in.string()));
     }
   };
 
   template <> struct build_ast < bin_op > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "BIN_OP_1: " << in.string() << std::endl;
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
+      BinOp op;
+      std::string inS = in.string();
+
+      switch(inS[0]) {
+      case '+': break;
+      case '-': break;
+      case '*': break;
+      case '/': break;
+      case '=': break;
+      case '!': break;
+      case '<': break;
+      case '>': break;
+      }
+
+      stack.push(new BinExpr(op));
     }
   };
 
