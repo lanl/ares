@@ -324,6 +324,7 @@ struct Func : AST {
   Expr* body;
 };
 
+/*
 struct IfExpr : Expr {
   IfExpr() : Expr(kFunc), thenExpr(nullptr), elseExpr(nullptr), cond(nullptr) {};
   IfExpr(Expr* ifExpr, Expr* elseExpr, Expr* cond) :
@@ -420,7 +421,7 @@ struct ForExpr : Expr {
 
   Value* codegen() {
 
-
+    return 0;
 
   }
 
@@ -429,3 +430,4 @@ struct ForExpr : Expr {
   Expr* cond;
   Expr* step;
 };
+*/

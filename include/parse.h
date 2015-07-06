@@ -110,7 +110,7 @@ namespace parse {
   struct op_gte : string< '>', '=' > {};
   struct op_gt  : one< '>' > {};
 
-  struct bin_op : sor< op_add, op_sub, op_mul, op_div, op_not, op_eq, op_ass,
+  struct bin_op : sor< op_add, op_sub, op_mul, op_div, op_eq, op_ass,
                        op_neq, op_lte, op_lt, op_gte, op_gt > {};
   ////////////////////////////////////////////////////////////////
   // Expressions
@@ -178,7 +178,7 @@ namespace parse {
   template <> struct build_ast < grammar > {
     static void apply( const pegtl::input & in, std::stack<AST*> &stack) {
       // Print the AST
-      stack.top()->print();
+      stack.top()->print("AST", 0);
     }
   };
 
@@ -244,45 +244,44 @@ namespace parse {
   template <> struct build_ast < call > {
     static void apply(const pegtl::input & in, std::stack<AST*> &stack) {
       std::vector<Expr*> args;
-      CallExpr* callNode = new CallExpr( )
     }
   };
 
   template <> struct build_ast < expr > {
-    static void apply( const pegtl::input & in ){
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
       std::cout << "EXPR : " << in.string() << std::endl;
     }
   };
 
   template <> struct build_ast < ret_stat > {
-    static void apply( const pegtl::input & in ){
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
       std::cout << "RET_STAT : " << in.string() << std::endl;
     }
   };
 
   template <> struct build_ast < prototype > {
-    static void apply( const pegtl::input & in ){
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
       std::cout << "PROTOTYPE : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < extern_stat > {
-    static void apply( const pegtl::input & in ){
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
       std::cout << "EXTERN_STAT : " << in.string() << std::endl;
     }
   };
 
   template <> struct build_ast < block > {
-    static void apply( const pegtl::input & in ){
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
       std::cout << "BLOCK : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < func > {
-    static void apply( const pegtl::input & in ){
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
       std::cout << "FUNC : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < if_stat > {
-    static void apply( const pegtl::input & in ){
+    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
       std::cout << "IF_STAT : " << in.string() << std::endl;
     }
   };

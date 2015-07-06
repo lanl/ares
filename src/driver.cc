@@ -23,17 +23,17 @@ const size_t issues_found = pegtl::analyze< parse::grammar >();
 int main( int argc, char * argv[] )
 {
   if ( argc > 1 ) {
-    std::stack<AST*> parse_stack();
+    std::stack<AST*> parse_stack;
 
     std::cout << argv[1] << std::endl;
-    pegtl::parse< parse::grammar,  parse::build_ast >(1, argv);
+    pegtl::parse< parse::grammar,  parse::build_ast >(1, argv, parse_stack);
   } else {
     std::cout << "ISSUES FOUND: " << issues_found << std::endl;
-
     // Make and print a test AST. I must do this "bottom up".
     /*
       func f(x, y) { if x then f(x + 10 * y, y) else y}
      */
+    /*
     NameExpr* f_name = new NameExpr("f");
     NameExpr* x_0 = new NameExpr("x");
     NameExpr* y_0 = new NameExpr("y");
@@ -75,5 +75,6 @@ int main( int argc, char * argv[] )
     llvm::Function* f = func->codegen();
     f->dump();
     delete func;
+    */
   }
 }
