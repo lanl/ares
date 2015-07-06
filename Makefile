@@ -25,9 +25,9 @@
 CPP = clang++ --std=c++11
 
 # Compiler Flags
-CPPFLAGS   = -Wall -Wextra
+CPPFLAGS   = -Wall -Wextra `llvm-config-git --cxxflags`
 CPPFLAGS  += $(FLAG)
-LIB       :=
+LIB       := `llvm-config-git --ldflags --libs`
 INC       := -I include -I lib/PEGTL -I lib/PEGTL/pegtl
 
 # Directories and Files

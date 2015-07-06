@@ -32,7 +32,7 @@ int main( int argc, char * argv[] )
 
     // Make and print a test AST. I must do this "bottom up".
     /*
-      func f(x, y) { f(x + 10 * y, y) }
+      func f(x, y) { if x then f(x + 10 * y, y) else y}
      */
     NameExpr* f_name = new NameExpr("f");
     NameExpr* x_0 = new NameExpr("x");
@@ -59,6 +59,11 @@ int main( int argc, char * argv[] )
     actuals.push_back(y_2);
 
     CallExpr* call = new CallExpr(f_call_name, actuals);
+
+    NameExpr* x_2 = new NameExpr("x");
+    NameExpr* y_3 = new NameExpr("y");
+
+    IfExpr* ifExpr = new IfExpr(x_2, call, y_3);
 
     Func* func = new Func(f_proto, call);
 
