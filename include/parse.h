@@ -199,14 +199,42 @@ namespace parse {
       std::string inS = in.string();
 
       switch(inS[0]) {
-      case '+': break;
-      case '-': break;
-      case '*': break;
-      case '/': break;
-      case '=': break;
-      case '!': break;
-      case '<': break;
-      case '>': break;
+      case '+':
+        op = kAdd;
+        break;
+      case '-':
+        op = kSub;
+        break;
+      case '*':
+        op = kMul;
+        break;
+      case '/':
+        op = kDiv;
+        break;
+      case '=':
+        if(inS.compare("==")) {
+          op = kEq;
+        } else {
+          op = kAss;
+        }
+        break;
+      case '!':
+        op = kNEq;
+        break;
+      case '<':
+        if(inS.compare("<=")) {
+          op = kGTE;
+        } else {
+          op = kGT;
+        }
+        break;
+      case '>':
+        if(inS.compare(">=")) {
+          op = kLTE;
+        } else {
+          op = kLT;
+        }
+        break;
       }
 
       stack.push(new BinExpr(op));
@@ -214,13 +242,9 @@ namespace parse {
   };
 
   template <> struct build_ast < call > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "CALL: " << in.string() << std::endl;
-    }
-  };
-  template <> struct build_ast < expr_0 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "EXPR_0: " << in.string() << std::endl;
+    static void apply(const pegtl::input & in, std::stack<AST*> &stack) {
+      std::vector<Expr*> args;
+      CallExpr* callNode = new CallExpr( )
     }
   };
 
