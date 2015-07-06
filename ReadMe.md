@@ -21,6 +21,17 @@ File Structure
 * `build` --- Object files and the like
 * `bin` --- Target executable
 
+Current State
+-------------
+Currently the parser for this language does not actually generate
+ASTs. I think going for a fancy parser may have been a bit of a
+boondoggle. I'll either finish it or make a simple recurisve decent
+parser when I have some free time. For now, I'm just hardcoding AST's,
+which is not terrible --- what I care about is the codegen, anyway.
+
+This branch should be able to codegen everything. Once I have enough
+features, I'll begin targeting HLIR.
+
 Code Style
 ----------
 I am using the Google Style Guide, simply because it has a nice
