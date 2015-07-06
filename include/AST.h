@@ -12,8 +12,17 @@
 #pragma once
 
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
+
+#include <llvm/IR/Verifier.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+
+using namespace llvm;
 
 enum NodeType {
   kNum,
@@ -31,6 +40,19 @@ enum BinOp {
   kDiv,
 };
 
+namespace Codegen {
+  Value *errorv(const char *str) { std::cerr << str; return 0; }
+
+  static Module* module;
+  static IRBuilder<> b(getGlobalContext());
+  static std::map<std::string, Value*> valueTable;
+}; // namespace
+
+
+/**
+ * Generates a prefix string for printing ASTs, that will take care of indentation
+ * and semantic labeling.
+ */
 std::string prefix(const std::string& label, int depth) {
     std::stringstream sstm;
     while(depth--) {
@@ -56,6 +78,7 @@ struct AST {
 struct Expr    : AST {
   Expr(NodeType type) : AST(type) {};
   virtual ~Expr() {};
+  virtual Value* codegen() = 0;
 };
 
 // Root Statement Type
@@ -75,6 +98,10 @@ struct NumExpr : Expr {
     std::cout << prefix(label, depth) << "NumExpr( " << val << " )" << std::endl;
   };
 
+  Value* codegen() {
+    return ConstantFP::get(getGlobalContext(), APFloat(val));
+  }
+
   double val;
 };
 
@@ -85,6 +112,12 @@ struct NameExpr : Expr {
   void print(const std::string& label, int depth) {
     std::cout << prefix(label, depth) << "NameExpr( " << name << " )" << std::endl;
   };
+
+  Value* codegen() {
+    // Look this variable up in the function.
+    Value *V = Codegen::valueTable[name];
+    return V ? V : Codegen::errorv("Unknown variable name");
+  }
 
   std::string name;
 };
@@ -110,6 +143,20 @@ struct BinExpr : Expr {
     rhs->print("RHS -> ", depth + 1);
   };
 
+  Value* codegen() {
+    Value *l = lhs->codegen();
+    Value *r = rhs->codegen();
+    if (l == 0 || r == 0) return 0;
+
+    switch (op) {
+    case kAdd: return Codegen::b.CreateFAdd(l, r, "addtmp");
+    case kSub: return Codegen::b.CreateFSub(l, r, "subtmp");
+    case kMul: return Codegen::b.CreateFMul(l, r, "multmp");
+    case kDiv: return Codegen::b.CreateFDiv(l, r, "divtmp");
+    default: return Codegen::errorv("invalid binary operator");
+    }
+  }
+
   BinOp op;
   Expr *lhs, *rhs;
 };
@@ -125,6 +172,26 @@ struct CallExpr : Expr {
       delete arg;
     }
   };
+
+  Value* codegen() {
+    // Look up the name in the global module table.
+    Function *func = Codegen::module->getFunction(callee->name);
+    if (func == 0) {
+      return Codegen::errorv("Unknown function referenced");
+    }
+
+    // If argument mismatch error.
+    if (func->arg_size() != args.size()) {
+      return Codegen::errorv("Incorrect # arguments passed");
+    }
+
+    std::vector<Value*> argsv;
+    for(auto arg : args) {
+      argsv.push_back(arg->codegen());
+    }
+
+    return Codegen::b.CreateCall(func, argsv, "calltmp");
+  }
 
   void print(const std::string& label, int depth) {
     std::cout << prefix(label, depth) << "CallExpr()" << std::endl;
@@ -148,7 +215,49 @@ struct Proto : AST {
     for(auto arg : args) {
       delete arg;
     }
-  };
+  }
+
+    Function* codegen() {
+      // Make the function type:  double(double,double) etc.
+      std::vector<Type*> doubles(args.size(),
+                                 Type::getDoubleTy(getGlobalContext()));
+      FunctionType *ft = FunctionType::get(Type::getDoubleTy(getGlobalContext()),
+                                           doubles, false);
+      Function *f = Function::Create(ft, Function::ExternalLinkage,
+                                     name->name, Codegen::module);
+
+      // If F conflicted, there was already something named 'Name'.  If it has a
+      // body, don't allow redefinition or reextern.
+      if (f->getName() != name->name) {
+        // Delete the one we just made and get the existing one.
+        f->eraseFromParent();
+        f = Codegen::module->getFunction(name->name);
+      }
+
+      // If F already has a body, reject this.
+      if (!f->empty()) {
+        Codegen::errorv("redefinition of function");
+        return 0;
+      }
+
+      // If F took a different number of args, reject.
+      if (f->arg_size() != args.size()) {
+        Codegen::errorv("redefinition of function with different # args");
+        return 0;
+      }
+
+      // Set names for all arguments.
+      unsigned idx = 0;
+      for (Function::arg_iterator ai = f->arg_begin(); idx != args.size();
+           ++ai, ++idx) {
+        ai->setName(args[idx]->name);
+
+        // Add arguments to variable symbol table.
+        Codegen::valueTable[args[idx]->name] = ai;
+      }
+
+      return f;
+    }
 
   void print(const std::string& label, int depth) {
     std::cout << prefix(label, depth) << "Proto()" << std::endl;
@@ -176,7 +285,36 @@ struct Func : AST {
     std::cout << prefix(label, depth) << "Func()" << std::endl;
     proto->print("PROTO -> ", depth + 1);
     body->print("BODY -> ", depth + 1);
-  };
+  }
+
+  Function* codegen() {
+    Codegen::valueTable.clear();
+
+    Function *func = proto->codegen();
+
+    if (func == 0) {
+      return 0;
+    }
+
+    // Create a new basic block to start insertion into.
+    BasicBlock *bb = BasicBlock::Create(getGlobalContext(), "entry", func);
+    Codegen::b.SetInsertPoint(bb);
+
+    if (Value *retval = body->codegen()) {
+      // Finish off the function.
+      Codegen::b.CreateRet(retval);
+
+      // Validate the generated code, checking for consistency.
+      verifyFunction(*func);
+
+      return func;
+    }
+
+    // Error reading body, remove function.
+    func->eraseFromParent();
+    return 0;
+  }
+
 
   Proto* proto;
   Expr* body;

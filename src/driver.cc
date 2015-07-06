@@ -62,6 +62,12 @@ int main( int argc, char * argv[] )
     Func* func = new Func(f_proto, call);
 
     func->print("root: ", 0);
+
+    LLVMContext &Context = getGlobalContext();
+    Codegen::module = new Module("Toy", Context);
+
+    llvm::Function* f = func->codegen();
+    f->dump();
     delete func;
   }
 }
