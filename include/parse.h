@@ -111,33 +111,23 @@ namespace parse {
   struct op_gte : string< '>', '=' > {};
   struct op_gt  : one< '>' > {};
 
-  struct bin_op_1 : failure {};
-  struct bin_op_2 : failure {};
-  struct bin_op_3 : sor< op_mul, op_div >{};
-  struct bin_op_4 : sor< op_add, op_sub >{};
-  struct bin_op_5 : sor< op_eq, op_neq, op_lte, op_gte, op_lt, op_gt > {};
-  struct bin_op_6 : sor< op_ass > {};
-
+  struct bin_op : sor< op_add, op_sub, op_mul, op_div, op_not, op_eq, op_ass,
+                       op_neq, op_lte, op_lt, op_gte, op_gt > {};
   ////////////////////////////////////////////////////////////////
   // Expressions
   // Lower the number, lower in the tree
   ////////////////////////////////////////////////////////////////
   struct expr;
 
-  struct call : seq< pad< name, space >,
-                     one< '(' >,
+  struct call : seq< at< pad< name, space >, one< '(' > >,
+                     pad< name, space >, one< '(' >,
                      pad_opt< list< expr, one< ',' >, space >, space >,
                      one< ')' > >{};
   struct expr_0 : pad<
     sor< call, num, name,
          seq< one< '(' >,  pad< expr, space >, one< ')' > > >,
     space > {};
-  struct expr_1 : sor< seq< expr_0, pad< bin_op_1, space >, expr_1 >, expr_0 > {};
-  struct expr_2 : sor< seq< expr_1, pad< bin_op_2, space >, expr_2 >, expr_1 > {};
-  struct expr_3 : sor< seq< expr_2, pad< bin_op_3, space >, expr_3 >, expr_2 > {};
-  struct expr_4 : sor< seq< expr_3, pad< bin_op_4, space >, expr_4 >, expr_3 > {};
-  struct expr_5 : sor< seq< expr_4, pad< bin_op_5, space >, expr_5 >, expr_4 > {};
-  struct expr   : sor< seq< name, pad< bin_op_6, space >, expr >, expr_5 > {};
+  struct expr : seq< expr_0, star< seq< bin_op, expr_0 > > > {};
 
   ////////////////////////////////////////////////////////////////
   // Functions and Blocks
@@ -203,34 +193,9 @@ namespace parse {
     }
   };
 
-  template <> struct build_ast < bin_op_1 > {
+  template <> struct build_ast < bin_op > {
     static void apply( const pegtl::input & in ){
       std::cout << "BIN_OP_1: " << in.string() << std::endl;
-    }
-  };
-  template <> struct build_ast < bin_op_2 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "BIN_OP_2: " << in.string() << std::endl;
-    }
-  };
-  template <> struct build_ast < bin_op_3 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "BIN_OP_3: " << in.string() << std::endl;
-    }
-  };
-  template <> struct build_ast < bin_op_4 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "BIN_OP_4: " << in.string() << std::endl;
-    }
-  };
-  template <> struct build_ast < bin_op_5 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "BIN_OP_5: " << in.string() << std::endl;
-    }
-  };
-  template <> struct build_ast < bin_op_6 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "BIN_OP_6: " << in.string() << std::endl;
     }
   };
 
@@ -244,31 +209,7 @@ namespace parse {
       std::cout << "EXPR_0: " << in.string() << std::endl;
     }
   };
-  template <> struct build_ast < expr_1 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "EXPR_1 : " << in.string() << std::endl;
-    }
-  };
-  template <> struct build_ast < expr_2 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "EXPR_2 : " << in.string() << std::endl;
-    }
-  };
-  template <> struct build_ast < expr_3 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "EXPR_3 : " << in.string() << std::endl;
-    }
-  };
-  template <> struct build_ast < expr_4 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "EXPR_4 : " << in.string() << std::endl;
-    }
-  };
-  template <> struct build_ast < expr_5 > {
-    static void apply( const pegtl::input & in ){
-      std::cout << "EXPR_5 : " << in.string() << std::endl;
-    }
-  };
+
   template <> struct build_ast < expr > {
     static void apply( const pegtl::input & in ){
       std::cout << "EXPR : " << in.string() << std::endl;
