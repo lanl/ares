@@ -40,6 +40,13 @@ enum BinOp {
   kSub,
   kMul,
   kDiv,
+  kAss,
+  kEq,
+  kNEq,
+  kLT,
+  kLTE,
+  kGT,
+  kGTE,
 };
 
 namespace Codegen {
@@ -120,6 +127,7 @@ struct NameExpr : Expr {
 
 struct BinExpr : Expr {
   BinExpr() : Expr(kBin), lhs(nullptr), rhs(nullptr) {};
+  BinExpr(BinOp op) : Expr(kBin), op(op), lhs(nullptr), rhs(nullptr) {};
   BinExpr(BinOp op, Expr *lhs, Expr *rhs)
     : Expr(kBin), op(op), lhs(lhs), rhs(rhs) {};
 
