@@ -33,8 +33,10 @@ namespace parse {
   // Note that 'elseif' precedes 'else' in order to prevent only matching
   // the "else" part of an "elseif" and running into an error in the
   // 'keyword' rule.
-  struct str_and     : string< 'a', 'n', 'd' > {};
-  struct str_break   : string< 'b', 'r', 'e', 'a', 'k' > {};
+  //
+  // These keywords are not all used. I just have theme here as they may be
+  // used in the future.
+  //
   struct str_do      : string< 'd', 'o' > {};
   struct str_else    : string< 'e', 'l', 's', 'e' > {};
   struct str_elseif  : string< 'e', 'l', 's', 'e', 'i', 'f' > {};
@@ -43,26 +45,20 @@ namespace parse {
   struct str_false   : string< 'f', 'a', 'l', 's', 'e' > {};
   struct str_for     : string< 'f', 'o', 'r' > {};
   struct str_func    : string< 'f', 'u', 'n', 'c' > {};
-  struct str_goto    : string< 'g', 'o', 't', 'o' > {};
   struct str_if      : string< 'i', 'f' > {};
   struct str_in      : string< 'i', 'n' > {};
-  struct str_not     : string< 'n', 'o', 't' > {};
-  struct str_or      : string< 'o', 'r' > {};
   struct str_return  : string< 'r', 'e', 't', 'u', 'r', 'n' > {};
+  struct str_task    : string< 't', 'a', 's', 'k' > {};
   struct str_then    : string< 't', 'h', 'e', 'n' > {};
   struct str_true    : string< 't', 'r', 'u', 'e' > {};
-  struct str_while   : string< 'w', 'h', 'i', 'l', 'e' > {};
 
-  struct str_keyword : sor< str_and, str_break, str_do, str_else, str_elseif,
-                            str_end, str_extern, str_false, str_for, str_func,
-                            str_goto, str_if, str_in, str_not, str_or,
-                            str_return, str_then, str_true, str_while > {};
+  struct str_keyword : sor< str_do, str_else, str_elseif, str_end, str_extern,
+                            str_false, str_for, str_func, str_if, str_in,
+                            str_return, str_task, str_then, str_true > {};
 
   template< typename Key >
   struct key : seq< Key, not_at< identifier_other > > {};
 
-  struct key_and     : key< str_and >    {};
-  struct key_break   : key< str_break >  {};
   struct key_do      : key< str_do >     {};
   struct key_else    : key< str_else >   {};
   struct key_elseif  : key< str_elseif > {};
@@ -71,21 +67,20 @@ namespace parse {
   struct key_false   : key< str_false >  {};
   struct key_for     : key< str_for >    {};
   struct key_func    : key< str_func >   {};
-  struct key_goto    : key< str_goto >   {};
   struct key_if      : key< str_if >     {};
   struct key_in      : key< str_in >     {};
-  struct key_not     : key< str_not >    {};
-  struct key_or      : key< str_or >     {};
   struct key_return  : key< str_return > {};
+  struct key_task    : key< str_task >   {};
   struct key_then    : key< str_then >   {};
   struct key_true    : key< str_true >   {};
-  struct key_while   : key< str_while >  {};
 
   struct keyword : key< str_keyword > {};
 
   ////////////////////////////////////////////////////////////////
   // literals and identifiers
   ////////////////////////////////////////////////////////////////
+  // I use two different name identifiers so they can have different actions
+  // easily.
   struct num : seq <
     opt< sor< one< '+' >, one< '-' > > >,
     sor<
@@ -93,40 +88,46 @@ namespace parse {
       seq< plus< digit >, opt< one< '.' >, star< digit > > > > >{};
 
   struct name : seq< not_at< keyword >, identifier > {};
+  struct call_name : disable< name > {};
 
   ////////////////////////////////////////////////////////////////
   // Operators
-  // Lower the number, lower in the tree
   ////////////////////////////////////////////////////////////////
   struct op_add : one< '+' > {};
   struct op_sub : one< '-' > {};
   struct op_mul : one< '*' > {};
   struct op_div : one< '/' > {};
   struct op_eq  : string< '=', '=' > {};
-  struct op_ass : one< '=' > {};
   struct op_neq : string< '!', '=' > {};
   struct op_lte : string< '<', '=' > {};
   struct op_lt  : one< '<' > {};
   struct op_gte : string< '>', '=' > {};
   struct op_gt  : one< '>' > {};
 
-  struct bin_op : sor< op_add, op_sub, op_mul, op_div, op_eq, op_ass,
-                       op_neq, op_lte, op_lt, op_gte, op_gt > {};
+  struct bin_op : sor< op_add, op_sub, op_mul, op_div, op_eq, op_neq, op_lte,
+                       op_lt, op_gte, op_gt > {};
   ////////////////////////////////////////////////////////////////
   // Expressions
-  // Lower the number, lower in the tree
   ////////////////////////////////////////////////////////////////
+  // There is no operator precedence. Use parentheses.
   struct expr;
 
   struct call : seq< at< pad< name, space >, one< '(' > >,
-                     pad< name, space >, one< '(' >,
+                     pad< call_name, space >, one< '(' >,
                      pad_opt< list< expr, one< ',' >, space >, space >,
                      one< ')' > >{};
+
+  struct ifthen_expr : seq< key_if, pad< expr, space >,
+                            key_then, pad< expr, space >,
+                            key_else, pad< expr, space >,
+                            key_end > {};
+
   struct expr_0 : pad<
-    sor< call, num, name,
+    sor< ifthen_expr, call, num, name,
          seq< one< '(' >,  pad< expr, space >, one< ')' > > >,
     space > {};
-  struct expr : seq< expr_0, star< seq< bin_op, expr_0 > > > {};
+
+  struct expr : seq< expr_0, opt< seq< bin_op, expr_0 > > > {};
 
   ////////////////////////////////////////////////////////////////
   // Functions and Blocks
@@ -137,64 +138,80 @@ namespace parse {
            pad_opt< list< name, one< ',' >, space >, space >,
            one< ')' > > {};
 
-  struct statement;
+  struct func : seq< key_func, pad< prototype, space >,
+                     one< '=' >, expr, one<';'> > {};
 
-  struct block : seq<
-    one< '{' >,
-    star< pad< sor< statement, seq< expr, one< ';' > > >, space > >,
-    one< '}' > > {};
-
-  struct func : seq< key_func, pad< prototype, space >, block > {};
-
-
+  struct task : seq< key_task, pad< prototype, space >,
+                     one< '=' >, expr, one<';'> > {};
   ////////////////////////////////////////////////////////////////
   // Statements
   ////////////////////////////////////////////////////////////////
-  struct ret_stat : seq< key_return, pad< expr, space>,  one< ';' > > {};
   struct extern_stat : seq< key_extern, pad< prototype, space>, one< ';' > > {};
-
-  struct if_stat : seq< key_if,
-                        pad< one< '(' >, space >,
-                        expr,
-                        pad< one< ')' >, space >,
-                        block, space > {};
-
-  struct statement : sor< ret_stat, extern_stat, if_stat > {};
 
   ////////////////////////////////////////////////////////////////
   // Root Grammar Node
   ////////////////////////////////////////////////////////////////
   struct grammar
-    : must< star< pad < sor< func, extern_stat >, space > > , eof > {};
+    : must< star< pad < sor< func, task, extern_stat >, space > > , eof > {};
 
 
   ////////////////////////////////////////////////////////////////
   // Parsing Actions
   ////////////////////////////////////////////////////////////////
+  // First we define a class which contains all necessary parsing state.
+  // I do this because I am lazy, not because I am clever.
+  template< typename Rule >
+  struct build_ast
+    : pegtl::nothing< Rule > {};
+
+  /*
+  struct parse_state {
+
+  };
+
   template< typename Rule >
   struct build_ast
     : pegtl::nothing< Rule > {};
 
   template <> struct build_ast < grammar > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack) {
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call) {
       // Print the AST
-      stack.top()->print("AST", 0);
+      ex.top()->print("AST", 0);
     }
   };
 
   template <> struct build_ast < num > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack) {
-      stack.push(new NumExpr(stod(in.string())));
-    }
-  };
-  template <> struct build_ast < name > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
-      stack.push(new NameExpr(in.string()));
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call) {
+      ex.push(new NumExpr(stod(in.string())));
     }
   };
 
+  template <> struct build_ast < name > {
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call) {
+      ex.push(new NameExpr(in.string()));
+    }
+  };
+
+  template <> struct build_ast < call_name > {
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call) {
+      call.push(new NameExpr(in.string()));
+    }
+  };
+
+  template <> struct build_ast < expr_0 > {
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call) {
+
+    }
+  }
+
   template <> struct build_ast < bin_op > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call){
       BinOp op;
       std::string inS = in.string();
 
@@ -237,53 +254,62 @@ namespace parse {
         break;
       }
 
-      stack.push(new BinExpr(op));
+      ex.push(new BinExpr(op));
     }
   };
 
   template <> struct build_ast < call > {
-    static void apply(const pegtl::input & in, std::stack<AST*> &stack) {
+    static void apply(const pegtl::input & in, std::stack<AST*> &ex,
+                      std::stack<NameExpr*> call) {
       std::vector<Expr*> args;
     }
   };
 
   template <> struct build_ast < expr > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
-      std::cout << "EXPR : " << in.string() << std::endl;
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call){
+
     }
   };
 
   template <> struct build_ast < ret_stat > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call){
       std::cout << "RET_STAT : " << in.string() << std::endl;
     }
   };
 
   template <> struct build_ast < prototype > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call){
       std::cout << "PROTOTYPE : " << in.string() << std::endl;
     }
   };
+
   template <> struct build_ast < extern_stat > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call){
       std::cout << "EXTERN_STAT : " << in.string() << std::endl;
     }
   };
 
   template <> struct build_ast < block > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call){
       std::cout << "BLOCK : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < func > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call){
       std::cout << "FUNC : " << in.string() << std::endl;
     }
   };
   template <> struct build_ast < if_stat > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &stack){
+    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
+                       std::stack<NameExpr*> call){
       std::cout << "IF_STAT : " << in.string() << std::endl;
     }
   };
-
+  */
 } // namespace parse
