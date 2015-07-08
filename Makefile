@@ -45,8 +45,8 @@ MAINOBJ  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(MAINSRC:.$(CPPSRCEXT)=.o))
 SOURCES  := $(shell find $(SRCDIR) -type f -name *.$(CPPSRCEXT))
 SOURCES  := $(filter-out $(MAINSRC), $(SOURCES))
 OBJECTS  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(SOURCES:.$(CPPSRCEXT)=.o))
-TESTSRC  := $(shell find $(TESTDIR) -type f -name *.$(SRCEXT))
-TESTOBJ  := $(patsubst $(TESTDIR)/%,$(BUILDDIR)/$(TESTDIR)/%,$(TESTSRC:.$(SRCEXT)=.o))
+TESTSRC  := $(shell find $(TESTDIR) -type f -name *.$(CPPSRCEXT))
+TESTOBJ  := $(patsubst $(TESTDIR)/%,$(BUILDDIR)/$(TESTDIR)/%,$(TESTSRC:.$(CPPSRCEXT)=.o))
 DEP      := $(OBJECTS:%.o=%.d)
 
 # Google Test Framework variable
