@@ -29,9 +29,11 @@ int main( int argc, char * argv[] )
     std::cout << "INSPECTING AST..." << std::endl << std::endl;
     for(auto func : state.funcs) {
       func->print("ROOT", 0);
+      delete func;
     }
     for(auto ext : state.externs) {
       ext->print("ROOT", 0);
+      delete ext;
     }
   } else {
     std::cout << "ISSUES FOUND: " << issues_found << std::endl;
