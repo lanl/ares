@@ -263,8 +263,7 @@ namespace parse {
    * lhs or rhs
    */
   template <> struct build_ast < bin_op > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call){
+    static void apply( const pegtl::input & in, parse_state &state) {
       BinOp op;
       std::string inS = in.string();
 
@@ -307,7 +306,7 @@ namespace parse {
         break;
       }
 
-      ex.push(new BinExpr(op));
+    state.exprStack.top()->push_back(new BinExpr(op));
     }
   };
 
