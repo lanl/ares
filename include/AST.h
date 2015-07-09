@@ -87,7 +87,7 @@ struct AST {
 struct Expr    : AST {
   Expr(NodeType type) : AST(type) {};
   virtual ~Expr() {};
-  virtual Value* codegen() = 0;
+  virtual Value* codegen() {};
 };
 
 ////////////////////////////////////////////////////////////////
@@ -340,63 +340,6 @@ struct IfExpr : Expr {
     cond    ->print("COND -> ", depth + 1);
     thenExpr->print("IF -> ",   depth + 1);
     elseExpr->print("ELSE -> ", depth + 1);
-  }
-
-  Value* codegen() {
-
-    Value *condv = cond->codegen();
-    if (condv == 0){
-      return 0;
-    }
-
-    // Convert condition to a bool by comparing equal to 0.0.
-    condv = Codegen::b.CreateFCmpONE(condv,
-                                  ConstantFP::get(getGlobalContext(), APFloat(0.0)),
-                                  "ifcond");
-
-    Function *thefunction = Codegen::b.GetInsertBlock()->getParent();
-
-    // Create blocks for the then and else cases.  Insert the 'then' block at the
-    // end of the function.
-    BasicBlock *thenbb = BasicBlock::Create(getGlobalContext(), "then", thefunction);
-    BasicBlock *elsebb = BasicBlock::Create(getGlobalContext(), "else");
-    BasicBlock *mergebb = BasicBlock::Create(getGlobalContext(), "ifcont");
-
-    Codegen::b.CreateCondBr(condv, thenbb, elsebb);
-
-    // Emit then value.
-    Codegen::b.SetInsertPoint(thenbb);
-
-    Value *thenv = thenExpr->codegen();
-    if (thenv == 0){
-      return 0;
-    }
-
-    Codegen::b.CreateBr(mergebb);
-    // Codegen of 'Then' can change the current block, update ThenBB for the PHI.
-    thenbb = Codegen::b.GetInsertBlock();
-
-    // Emit else block.
-    thefunction->getBasicBlockList().push_back(elsebb);
-    Codegen::b.SetInsertPoint(elsebb);
-
-    Value *elsev = elseExpr->codegen();
-    if (elsev == 0){
-      return 0;
-    }
-
-    Codegen::b.CreateBr(mergebb);
-    // Codegen of 'Else' can change the current block, update ElseBB for the PHI.
-    elsebb = Codegen::b.GetInsertBlock();
-
-    // Emit merge block.
-    thefunction->getBasicBlockList().push_back(mergebb);
-    Codegen::b.SetInsertPoint(mergebb);
-    PHINode *pn = Codegen::b.CreatePHI(Type::getDoubleTy(getGlobalContext()), 2,
-                                       "iftmp");
-    pn->addIncoming(thenv, thenbb);
-    pn->addIncoming(elsev, elsebb);
-    return pn;
   }
 
   Expr* thenExpr;
