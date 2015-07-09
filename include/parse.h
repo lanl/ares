@@ -127,7 +127,7 @@ namespace parse {
          seq< one< '(' >,  pad< expr, space >, one< ')' > > >,
     space > {};
 
-  struct expr : seq< expr_0, opt< seq< bin_op, expr_0 > > > {};
+  struct expr : seq< expr_0, star< seq< bin_op, expr_0 > > > {};
 
   ////////////////////////////////////////////////////////////////
   // Functions and Blocks
