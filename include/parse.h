@@ -25,6 +25,8 @@
 
 #include <pegtl.hh>
 
+#include "AST.h"
+
 namespace parse {
   using namespace pegtl;
 
@@ -425,7 +427,7 @@ namespace parse {
         BinExpr* bin;
 
         if(b->type == kBin
-           && ((bin = static_cast<BinExpr*>(b))->lhs != nullptr) ) {
+           && ((bin = static_cast<BinExpr*>(b))->lhs == nullptr) ) {
           // An unfinished binop was found. Finish and put back
           // into context.
           bin->lhs = l;
