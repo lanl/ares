@@ -275,10 +275,10 @@ struct Proto : AST {
   std::vector<NameExpr*> args;
 };
 
-// Right now functions are single expressions. This is just for testing reasons.
 struct Func : AST {
-  Func() : AST(kFunc), proto(nullptr), body(nullptr) {};
-  Func(Proto* proto, Expr* body) : AST(kFunc), proto(proto), body(body) {};
+  Func(bool isTask) : AST(kFunc), isTask(isTask), proto(nullptr), body(nullptr) {};
+  Func(bool isTask, Proto* proto, Expr* body) :
+    AST(kFunc), isTask(isTask), proto(proto), body(body) {};
 
   ~Func() {
     delete proto;
@@ -319,12 +319,11 @@ struct Func : AST {
     return 0;
   }
 
-
+  bool isTask;
   Proto* proto;
   Expr* body;
 };
 
-/*
 struct IfExpr : Expr {
   IfExpr() : Expr(kFunc), thenExpr(nullptr), elseExpr(nullptr), cond(nullptr) {};
   IfExpr(Expr* ifExpr, Expr* elseExpr, Expr* cond) :
@@ -405,6 +404,7 @@ struct IfExpr : Expr {
   Expr* cond;
 };
 
+/*
 struct ForExpr : Expr {
   ForExpr() : Expr(kFor), iter(nullptr), start(nullptr), cond(nullptr),
               step(nullptr) {};
