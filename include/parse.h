@@ -18,6 +18,7 @@
  */
 #pragma once
 
+#include <deque>
 #include <stack>
 #include <string>
 #include <iostream>
@@ -36,7 +37,6 @@ namespace parse {
   //
   // These keywords are not all used. I just have theme here as they may be
   // used in the future.
-  //
   struct str_do      : string< 'd', 'o' > {};
   struct str_else    : string< 'e', 'l', 's', 'e' > {};
   struct str_elseif  : string< 'e', 'l', 's', 'e', 'i', 'f' > {};
@@ -154,61 +154,114 @@ namespace parse {
   struct grammar
     : must< star< pad < sor< func, task, extern_stat >, space > > , eof > {};
 
-
   ////////////////////////////////////////////////////////////////
   // Parsing Actions
   ////////////////////////////////////////////////////////////////
-  // First we define a class which contains all necessary parsing state.
-  // I do this because I am lazy, not because I am clever.
-  template< typename Rule >
-  struct build_ast
-    : pegtl::nothing< Rule > {};
 
-  /*
+  /**
+   * This structure keeps track of the state of parsing. For this structure
+   * to work, it is vital the grammar has no backtracking.
+   *
+   * `funcs` and `externs` are lists of all completed functions/tasks and
+   * externed functions. When parsing is complete, these lists will be
+   * used for further processing.
+   *
+   * protoCur contains the prototype for the current function or extern.
+   *
+   * exprStack is the main workspace for parsing. It acts as a stack of "contexts".
+   * Any expression construct that can be nested will push a new context onto
+   * the stack. Every context is essentially a list of expressions. When
+   * whatever pushed the context onto the stack finishes parsing, it will
+   * know how to interpret that list of expressions.
+   *
+   * The typical pattern is
+   *   1) Identify the need for a new context, and push new context.
+   *   2) Parse expressions and put them into the context list.
+   *   3) Finish this context, make a new AST structure, free context, and
+   *      add new AST structure to the parent context.
+   */
   struct parse_state {
+    std::vector< Func* > funcs;
+    std::vector< Proto* > externs;
 
+    Proto* protoCur;
+
+    std::stack< std::deque<Expr*>* > exprStack;
   };
 
+  /**
+   * Rule: DEFAULT
+   * Do nothing, unless stated otherwise.
+   */
   template< typename Rule >
   struct build_ast
     : pegtl::nothing< Rule > {};
 
-  template <> struct build_ast < grammar > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call) {
-      // Print the AST
-      ex.top()->print("AST", 0);
-    }
-  };
-
+  /**
+   * Rule: num
+   * Place a new NumExpr into the context list.
+   */
   template <> struct build_ast < num > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call) {
-      ex.push(new NumExpr(stod(in.string())));
+    static void apply( const pegtl::input & in, parse_state &state) {
+      state.exprStack.top()->push_back(new NumExpr(stod(in.string())));
     }
   };
 
+  /**
+   * Rule: name
+   * Place a new NameExpr into the context list.
+   *
+   * Note that this name is not the start of a call. It COULD be used by a
+   * prototype.
+   */
   template <> struct build_ast < name > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call) {
-      ex.push(new NameExpr(in.string()));
+    static void apply( const pegtl::input & in, parse_state &state) {
+      state.exprStack.top()->push_back(new NameExpr(in.string()));
     }
   };
 
+  /**
+   * Rule: call (Removes Context)
+   * Front of context list is name of callee. The rest of the list is
+   * argument expressions. Collect this information, and remove the top
+   * context, and place a new CallExpr in the next context list.
+   */
+  template <> struct build_ast < call > {
+    static void apply(const pegtl::input & in, parse_state &state) {
+      std::vector<Expr*> args;
+      NameExpr* name = static_cast<NameExpr*>(state.exprStack.top()->front());
+      state.exprStack.top()->pop_front();
+
+      while(!state.exprStack.top()->empty()) {
+        args.push_back(state.exprStack.top()->back());
+        state.exprStack.top()->pop_back();
+      }
+
+      // No longer need this expr context
+      delete state.exprStack.top();
+      state.exprStack.pop();
+
+      state.exprStack.top()->push_back(new CallExpr(name, args));
+    }
+  };
+
+
+  /**
+   * Rule: call_name (Makes Context)
+   * Make a new Context, and push a NameExpr onto that context.
+   */
   template <> struct build_ast < call_name > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call) {
-      call.push(new NameExpr(in.string()));
+    static void apply( const pegtl::input & in, parse_state &state) {
+      state.exprStack.push(new std::deque<Expr*>);
+      state.exprStack.top()->push_back(new NameExpr(in.string()));
     }
   };
 
-  template <> struct build_ast < expr_0 > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call) {
-
-    }
-  }
-
+  /**
+   * Rule: bin_op
+   * Make a new BinExpr, and put it onto the current context list, with no
+   * lhs or rhs
+   */
   template <> struct build_ast < bin_op > {
     static void apply( const pegtl::input & in, std::stack<AST*> &ex,
                        std::stack<NameExpr*> call){
@@ -258,58 +311,186 @@ namespace parse {
     }
   };
 
-  template <> struct build_ast < call > {
-    static void apply(const pegtl::input & in, std::stack<AST*> &ex,
-                      std::stack<NameExpr*> call) {
-      std::vector<Expr*> args;
-    }
-  };
-
-  template <> struct build_ast < expr > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call){
-
-    }
-  };
-
-  template <> struct build_ast < ret_stat > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call){
-      std::cout << "RET_STAT : " << in.string() << std::endl;
-    }
-  };
-
+  /**
+   * Rule: prototype (Removes Context)
+   * Assumes first element of Context list is function name, and the rest
+   * are args. Removes context, and updates `protoCur`.
+   */
   template <> struct build_ast < prototype > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call){
-      std::cout << "PROTOTYPE : " << in.string() << std::endl;
+    static void apply( const pegtl::input & in, parse_state &state) {
+      // I need something to push the INITIAL expr context for this
+      std::vector<NameExpr*> args;
+      NameExpr* name = static_cast<NameExpr*>(state.exprStack.top()->front());
+      state.exprStack.top()->pop_front();
+
+      while(!state.exprStack.top()->empty()) {
+        args.push_back(static_cast<NameExpr*>(state.exprStack.top()->back()));
+        state.exprStack.top()->pop_back();
+      }
+
+      // No longer need this expr context
+      delete state.exprStack.top();
+      state.exprStack.pop();
+
+      state.protoCur = new Proto(name, args);
     }
   };
 
+  /**
+   * Rule: extern_stat
+   * Moves `protoCur` into `externs` list.
+   */
   template <> struct build_ast < extern_stat > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call){
-      std::cout << "EXTERN_STAT : " << in.string() << std::endl;
+    static void apply( const pegtl::input & in, parse_state &state) {
+      state.externs.push_back(state.protoCur);
     }
   };
 
-  template <> struct build_ast < block > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call){
-      std::cout << "BLOCK : " << in.string() << std::endl;
-    }
-  };
+  /**
+   * Rule: func (Removes Context)
+   * Takes first (presumably *only*) expression from context, and assumes that
+   * is the body. Constructs new function from this body and `protoCur`, and puts
+   * it into the `funcs` list.
+   */
   template <> struct build_ast < func > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call){
-      std::cout << "FUNC : " << in.string() << std::endl;
+    static void apply( const pegtl::input & in, parse_state &state) {
+      Expr* body = state.exprStack.top()->front();
+      state.exprStack.top()->pop_front();
+      delete state.exprStack.top();
+      state.exprStack.pop();
+
+      state.funcs.push_back(new Func(false, state.protoCur, body));
     }
   };
-  template <> struct build_ast < if_stat > {
-    static void apply( const pegtl::input & in, std::stack<AST*> &ex,
-                       std::stack<NameExpr*> call){
-      std::cout << "IF_STAT : " << in.string() << std::endl;
+
+  /**
+   * Rule: task (Removes Context)
+   * Takes first (presumably *only*) expression from context, and assumes that
+   * is the body. Constructs new function from this body and `protoCur`, and puts
+   * it into the `funcs` list.
+   */
+  template <> struct build_ast < task > {
+    static void apply( const pegtl::input & in, parse_state &state) {
+      Expr* body = state.exprStack.top()->front();
+      state.exprStack.top()->pop_front();
+      delete state.exprStack.top();
+      state.exprStack.pop();
+
+      state.funcs.push_back(new Func(true, state.protoCur, body));
     }
   };
-  */
+
+  /**
+   * Rule: ifthen_expr (Removes Context)
+   * Assumes first element in context list is condition, second truth, third
+   * false. Constructs new IfExpr, removes context, and puts IfExpr into
+   * next context list.
+   */
+  template <> struct build_ast < ifthen_expr > {
+    static void apply( const pegtl::input & in, parse_state &state) {
+      Expr* c = (*state.exprStack.top())[0];
+      Expr* t = (*state.exprStack.top())[1];
+      Expr* f = (*state.exprStack.top())[2];
+
+      delete state.exprStack.top();
+      state.exprStack.pop();
+
+      state.exprStack.top()->push_back(new IfExpr(t, f, c));
+    }
+  };
+
+  /**
+   * Rule: expr
+   * Two cases: Either the last expression was atomic, or a binop. We look at
+   * the current context. If there are at least three elements, we inspect the
+   * second to last. If it is an unfinished binop, we finish it, and put it
+   * back into the context list. This process is repeated until all expressions
+   * in the context seem good.
+   *
+   * Note: this does not mean there will be ONE expression left in the ctx.
+   *       Calls and Ifs require there be multiple expressions.
+   */
+  template <> struct build_ast < expr > {
+    static void apply( const pegtl::input & in, parse_state &state) {
+      auto ctx = state.exprStack.top();
+
+      // As long as there is at least three things in the ctx, it may be
+      // a bin op
+      while(ctx->size() >= 3) {
+        Expr* r = ctx->back();
+        ctx->pop_back();
+        Expr* b = ctx->back();
+        ctx->pop_back();
+        Expr* l = ctx->back();
+        ctx->pop_back();
+        BinExpr* bin;
+
+        if(b->type == kBin
+           && ((bin = static_cast<BinExpr*>(b))->lhs != nullptr) ) {
+          // An unfinished binop was found. Finish and put back
+          // into context.
+          bin->lhs = l;
+          bin->rhs = r;
+          ctx->push_back(bin);
+        } else {
+          // No unfinished binop was found. There is no need to keep
+          // looking. Put everything back and give up.
+          ctx->push_back(l);
+          ctx->push_back(b);
+          ctx->push_back(r);
+          break;
+        }
+      }
+    }
+  };
+
+  /**
+   * Rule: key_func (Makes Two Contexts)
+   * Puts two contexts onto the stack. One for the prototype, and another for the body.
+   */
+  template <> struct build_ast < key_func > {
+    static void apply( const pegtl::input & in, parse_state &state) {
+      // We need to push a context for the prototype AND a context for the
+      // body.
+      state.exprStack.push(new std::deque<Expr*>());
+      state.exprStack.push(new std::deque<Expr*>());
+    }
+  };
+
+  /**
+   * Rule: key_task (Makes Two Contexts)
+   * Puts two contexts onto the stack. One for the prototype, and another for the body.
+   */
+  template <> struct build_ast < key_task > {
+    static void apply( const pegtl::input & in, parse_state &state) {
+      // We need to push a context for the prototype AND a context for the
+      // body.
+      state.exprStack.push(new std::deque<Expr*>());
+      state.exprStack.push(new std::deque<Expr*>());
+    }
+  };
+
+  /**
+   * Rule: key_extern (Makes Context)
+   * Puts a context on the stack, for prototype.
+   */
+  template <> struct build_ast < key_extern > {
+    static void apply( const pegtl::input & in, parse_state &state) {
+      // We need to push a context for the prototype
+      state.exprStack.push(new std::deque<Expr*>());
+    }
+  };
+
+  /**
+   * Rule: key_if (Makes Context)
+   * Puts a context on the stack, which will eventually contain three expressions.
+   * This context will be consumed by ifthen_expr.
+   */
+  template <> struct build_ast < key_if > {
+    static void apply( const pegtl::input & in, parse_state &state) {
+      // We need to push a context for the if/then/else expr
+      state.exprStack.push(new std::deque<Expr*>());
+    }
+  };
+
 } // namespace parse
