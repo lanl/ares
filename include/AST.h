@@ -211,7 +211,7 @@ struct CallExpr : Expr {
 
 struct Proto : AST {
   Proto() : AST(kProto), name(nullptr), args() {};
-  Proto(NameExpr* name, const std::vector<NameExpr*> &args)
+  Proto(NameExpr* name, std::vector<NameExpr*> args)
     : AST(kProto), name(name), args(args) {};
 
   ~Proto() {
