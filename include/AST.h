@@ -336,9 +336,9 @@ struct IfExpr : Expr {
   }
 
   void print(const std::string& label, int depth) {
-    std::cout << prefix(label, depth) << "IF()" << std::endl;
-    cond    ->print("COND -> ", depth + 1);
-    thenExpr->print("IF -> ",   depth + 1);
+    std::cout << prefix(label, depth) << "IfExpr()" << std::endl;
+    cond    ->print("IF -> ", depth + 1);
+    thenExpr->print("THEN -> ",   depth + 1);
     elseExpr->print("ELSE -> ", depth + 1);
   }
 
