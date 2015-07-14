@@ -43,13 +43,17 @@ namespace {
   private:
     /// Common Functions
     Function *pthread_create;
+    Function* pthread_exit;
+    Function* pthread_join;
 
     /// Common Types
     PointerType *VoidPtrTy;
     PointerType *PthreadAttrPtrTy;
     PointerType *Int64PtrTy;
     PointerType *StartFTy;
-    FunctionType *PthreadTy;
+    FunctionType *CreateTy;
+    FunctionType *ExitTy;
+    FunctionType *JoinTy;
 
     /// Maps a function to a wrapped version of that function which is
     /// able to be called by llvm.
@@ -59,10 +63,6 @@ namespace {
     /// Initialize all types that are used in this pass (really just for
     /// convenience).
     void initTypes(Module &M) {
-      /*
-        int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
-        void *(*start_routine) (void *), void *arg);
-      */
       this->VoidPtrTy = Type::getInt8PtrTy(M.getContext());
       this->Int64PtrTy = Type::getInt64PtrTy(M.getContext());
 
@@ -77,14 +77,37 @@ namespace {
       this->StartFTy = PointerType::get(
         FunctionType::get(this->VoidPtrTy, StartFArgTy, false), 0);
 
+      /*
+        int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+        void *(*start_routine) (void *), void *arg);
+      */
       Type *PthreadArgsTy[4] = {
         this->Int64PtrTy,
         this->PthreadAttrPtrTy,
         this->StartFTy,
         this->VoidPtrTy
       };
-      this->PthreadTy = FunctionType::get(IntegerType::get(M.getContext(), 32),
-                                          PthreadArgsTy, false);
+      this->CreateTy = FunctionType::get(IntegerType::get(M.getContext(), 32),
+                                         PthreadArgsTy, false);
+
+      /*
+        void pthread_exit(void *retval);
+      */
+      Type* ExitArgsTy[1] = {
+        this->VoidPtrTy
+      };
+      this->ExitTy = FunctionType::get(Type::getVoidTy(M.getContext()), ExitArgsTy,
+                                      false);
+
+      /*
+        int pthread_join(pthread_t thread, void **retval);
+      */
+      Type* JoinArgsTy[2] = {
+        Type::getInt64Ty(M.getContext()),
+        PointerType::get(this->VoidPtrTy, 0)
+      };
+      this->JoinTy = FunctionType::get(Type::getInt32PtrTy(M.getContext()),
+                                       JoinArgsTy, false);
     }
 
     /// Make a declaration of `pthread_create` if necessary. Returns whether or
@@ -92,8 +115,13 @@ namespace {
     ///
     /// TODO: Currently always makes the declaration.
     bool initPthreadCreate(Module *M) {
-      this->pthread_create = Function::Create(PthreadTy, Function::ExternalLinkage,
+      this->pthread_create = Function::Create(CreateTy, Function::ExternalLinkage,
                                               "pthread_create", M);
+      this->pthread_exit   = Function::Create(ExitTy, Function::ExternalLinkage,
+                                            "pthread_exit", M);
+      this->pthread_join   = Function::Create(JoinTy, Function::ExternalLinkage,
+                                            "pthread_join", M);
+
       return true;
     }
 
