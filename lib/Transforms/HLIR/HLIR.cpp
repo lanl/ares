@@ -233,10 +233,10 @@ namespace {
       Value *ArgPtr    = B.CreateAlloca(WrappedArgTy);
       int ArgId = 0;
       for(auto &Arg : I->arg_operands()) {
-        Value *GEPIndex[2] = {ConstantInt::get(Type::getInt64Ty(M->getContext()),
-                                               0),
-                              ConstantInt::get(Type::getInt32Ty(M->getContext()),
-                                               ArgId + HasReturn)};
+        Value *GEPIndex[2] = {
+          ConstantInt::get(Type::getInt64Ty(M->getContext()), 0),
+          ConstantInt::get(Type::getInt32Ty(M->getContext()), ArgId + HasReturn)
+        };
         B.CreateStore(Arg, B.CreateGEP(ArgPtr, GEPIndex));
         ArgId++;
       }
@@ -249,10 +249,39 @@ namespace {
       };
       B.CreateCall(this->pthread_create, PThreadArgs);
 
-      // Before we erase I, we need to find the first of use of it, and envoke
-      // a force.
-      I->eraseFromParent();
+      // Before we erase I, we need to find the first of use of it, and invoke
+      // a force. We need to keep in mind that this may be in another block...
+      // Not... not really sure what to do if that is the case? Could join
+      // for EVERY possible place?
+      // FOR NOW I ASSUME THAT IT CAN ONLY FORCE WITHIN THIS BB
+      // Note: I'm not enforcing that... I'm assuming it.
+      for (User *U : I->users()) {
+        if (Instruction *Inst = dyn_cast<Instruction>(U)) {
+          // This builder inserts before the first use.
+          IRBuilder<> ForceRet(Inst);
 
+          // FIRST, wait for the thread
+          Value *JoinArgs[2] = {
+            ForceRet.CreateLoad(ThreadPtr),
+            ConstantPointerNull::get(PointerType::get(this->VoidPtrTy, 0))
+          };
+          ForceRet.CreateCall(this->pthread_join, JoinArgs);
+
+          // NEXT: get the ret out of the struct
+          // (I know the return is there because there was a use.)
+          Value *GEPIndex[2] = {
+            ConstantInt::get(Type::getInt64Ty(M->getContext()), 0),
+            ConstantInt::get(Type::getInt32Ty(M->getContext()), 0)
+          };
+          Value *RetVal = ForceRet.CreateLoad(ForceRet.CreateGEP(ArgPtr, GEPIndex));
+
+          // LAST: Replace all uses with the true return value
+          I->replaceAllUsesWith(RetVal);
+          break;
+        }
+      }
+
+      I->eraseFromParent();
       return true;
     }
 
