@@ -148,6 +148,7 @@ namespace {
 
     /// Declare, construct, and return a Function wrapped to be launched by a pthread.
     Function *makeWrapperFunction(Module *M, Function *Func, StructType* WrapTy) {
+      // Actually make the function
       Type *Arg[1]          = { this->VoidPtrTy };
       FunctionType *FuncTy  = FunctionType::get(this->VoidPtrTy, Arg, false);
       Function *WrappedFunc = Function::Create(FuncTy, Function::ExternalLinkage,
@@ -157,24 +158,27 @@ namespace {
       BasicBlock *Block = BasicBlock::Create(Func->getContext(), "entry", WrappedFunc, 0);
       IRBuilder<> B(Block);
       std::vector<Value*> UnpackedArgs;
+      Value *PackedArg;
+      // Either the first element of a struct is a return, or a param.
+      // This turnary generates the appropriate offset.
+      int HasReturn = Func->getFunctionType()->getReturnType()
+        != Type::getVoidTy(Func->getContext()) ? 1 : 0;
 
+      // If there are args/returns, we need to unpack them
       if(WrapTy) {
-        //WrapTy->dump();
-        // Unpack and call.
+        // Get the input struct
         AllocaInst *PtrArg = B.CreateAlloca(this->VoidPtrTy);
         B.CreateStore(WrappedFunc->arg_begin(), PtrArg);
-        Value* PackedArg = B.CreateLoad(PtrArg);
+        PackedArg = B.CreateLoad(PtrArg);
         PackedArg = B.CreateBitCast(PackedArg, PointerType::get(WrapTy, 0));
 
-        // This assumes that the order of the structure is the same as the order
-        // of the original arguments.
         int ElemIndex = 0;
-        for(auto _ : WrapTy->elements()) {
+        for(auto _ : WrapTy->elements().slice(HasReturn)) {
           // Those types are NECESSARY
           Value *GEPIndex[2] = {ConstantInt::get(Type::getInt64Ty(Func->getContext()),
                                                  0),
                                 ConstantInt::get(Type::getInt32Ty(Func->getContext()),
-                                                 ElemIndex)};
+                                                 ElemIndex + HasReturn)};
           Value *ElemPtr = B.CreateGEP(PackedArg, GEPIndex);
           //Value *Elem = B.CreateLoad(ElemPtr);
           UnpackedArgs.push_back(B.CreateLoad(ElemPtr));
@@ -182,7 +186,18 @@ namespace {
         }
       }
 
-      B.CreateCall(Func, ArrayRef<Value*>(UnpackedArgs));
+      // Call The function we are wrapping
+      Value* RetVal = B.CreateCall(Func, ArrayRef<Value*>(UnpackedArgs));
+
+      // If need be, store the return.
+      if(HasReturn) {
+        Value *GEPIndex[2] = {
+          ConstantInt::get(Type::getInt64Ty(Func->getContext()), 0),
+          ConstantInt::get(Type::getInt32Ty(Func->getContext()), 0)
+        };
+        B.CreateStore(RetVal, B.CreateGEP(PackedArg, GEPIndex));
+      }
+
       B.CreateRet(ConstantPointerNull::get(this->VoidPtrTy));
       return WrappedFunc;
     }
