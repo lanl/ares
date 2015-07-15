@@ -223,6 +223,11 @@ namespace {
 
       }
 
+      // JUST like with making the wrapped function, we are going to generate
+      // an offset for return values.
+      int HasReturn = F->getFunctionType()->getReturnType()
+        != Type::getVoidTy(F->getContext()) ? 1 : 0;
+
       // Alloc a thread, pack args, launch pthread, remove old instruction.
       Value *ThreadPtr = B.CreateAlloca(Type::getInt64Ty(M->getContext()));
       Value *ArgPtr    = B.CreateAlloca(WrappedArgTy);
@@ -231,15 +236,21 @@ namespace {
         Value *GEPIndex[2] = {ConstantInt::get(Type::getInt64Ty(M->getContext()),
                                                0),
                               ConstantInt::get(Type::getInt32Ty(M->getContext()),
-                                               ArgId)};
+                                               ArgId + HasReturn)};
         B.CreateStore(Arg, B.CreateGEP(ArgPtr, GEPIndex));
         ArgId++;
       }
-      Value *PThreadArgs[4] = {ThreadPtr,
-                               ConstantPointerNull::get(this->PthreadAttrPtrTy),
-                               WrappedF,
-                               B.CreateBitCast(ArgPtr, this->VoidPtrTy)};
+
+      Value *PThreadArgs[4] = {
+        ThreadPtr,
+        ConstantPointerNull::get(this->PthreadAttrPtrTy),
+        WrappedF,
+        B.CreateBitCast(ArgPtr, this->VoidPtrTy)
+      };
       B.CreateCall(this->pthread_create, PThreadArgs);
+
+      // Before we erase I, we need to find the first of use of it, and envoke
+      // a force.
       I->eraseFromParent();
 
       return true;
