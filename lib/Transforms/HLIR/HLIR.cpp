@@ -43,8 +43,8 @@ namespace {
   private:
     /// Common Functions
     Function *pthread_create;
-    Function* pthread_exit;
-    Function* pthread_join;
+    Function *pthread_exit;
+    Function *pthread_join;
 
     /// Common Types
     PointerType *VoidPtrTy;
@@ -224,7 +224,8 @@ namespace {
 
   public:
     static char ID;
-    HLIRLower() : pthread_create(nullptr), ModulePass(ID) {};
+    HLIRLower() : ModulePass(ID), pthread_create(nullptr), pthread_exit(nullptr),
+                  pthread_join(nullptr) {};
 
     /// This function represents the actual pass.
     /// CURRENT STATE:
