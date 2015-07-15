@@ -126,14 +126,22 @@ namespace {
     }
 
     /// Declare and return a structure with elements equal to the argument types
-    /// of a function.
+    /// of a function. The first element will be the return value, unless the
+    /// return value is void.
     StructType *makeArgStructType(Function *Func) {
       StructType *WrapTy = NULL;
+      std::vector<Type*> StructContent;
 
-      if(Func->getFunctionType()->getNumParams()) {
-        WrapTy = StructType::create(Func->getFunctionType()->params());
+      if(Func->getFunctionType()->getReturnType() !=
+         Type::getVoidTy(Func->getContext())) {
+        StructContent.push_back(Func->getFunctionType()->getReturnType());
       }
 
+      for(auto param : Func->getFunctionType()->params()) {
+          StructContent.push_back(param);
+      }
+
+      WrapTy = StructType::create(ArrayRef<Type*>(StructContent));
       return WrapTy;
     }
 
