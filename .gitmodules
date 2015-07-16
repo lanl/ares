@@ -1,0 +1,6 @@
+[submodule "examples/ToyLang/lib/PEGTL"]
+	path = examples/ToyLang/lib/PEGTL
+	url = git@github.com:ColinH/PEGTL.git
+[submodule "examples/ToyLang/lib/googletest"]
+	path = examples/ToyLang/lib/googletest
+	url = git@github.com:smarr/googletest.git
