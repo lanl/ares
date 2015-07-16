@@ -1,0 +1,6 @@
+[submodule "lib/PEGTL"]
+	path = lib/PEGTL
+	url = git@github.com:ColinH/PEGTL.git
+[submodule "lib/googletest"]
+	path = lib/googletest
+	url = git@github.com:smarr/googletest.git
