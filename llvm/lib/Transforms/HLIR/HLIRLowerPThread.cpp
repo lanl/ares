@@ -20,25 +20,20 @@
 #include <map>
 
 #include "llvm/IR/BasicBlock.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/raw_ostream.h"
+
+#include "llvm/Transforms/HLIR/HLIRLower.h"
 
 using namespace llvm;
 
 namespace {
-/// Launch Call is a transform pass which will transform launch calls
-/// into pthread_create calls.
-///
-/// Future: Because HLIR lowers into llvm, we need a structure not unlike
-///         the codegen facilities in llvm. That means that this would
-///         be an abstract class, and would be made concrete by various
-///         runtime generators.
-class HLIRLower : public ModulePass {
+
+class HLIRLowerPThread : public HLIRLower {
 private:
   /// Common Functions
   Function *pthread_create;
@@ -61,7 +56,7 @@ private:
 
   /// Initialize all types that are used in this pass (really just for
   /// convenience).
-  void initTypes(Module &M) {
+  bool InitLower(Module &M) {
     this->VoidPtrTy = Type::getInt8PtrTy(M.getContext());
     this->Int64PtrTy = Type::getInt64PtrTy(M.getContext());
 
@@ -98,6 +93,8 @@ private:
                            PointerType::get(this->VoidPtrTy, 0)};
     this->JoinTy = FunctionType::get(Type::getInt32PtrTy(M.getContext()),
                                      JoinArgsTy, false);
+
+    return false;
   }
 
   /// Make a declaration of `pthread_create` if necessary. Returns whether or
@@ -276,50 +273,13 @@ private:
 
 public:
   static char ID;
-  HLIRLower()
-      : ModulePass(ID), pthread_create(nullptr), pthread_exit(nullptr),
+  HLIRLowerPThread()
+      : HLIRLower(ID), pthread_create(nullptr), pthread_exit(nullptr),
         pthread_join(nullptr){};
-
-  /// This function represents the actual pass.
-  /// CURRENT STATE:
-  ///  It will look for any call
-  /// instruction with the `hlir.launch` metadata node attached, and will
-  /// replace that call with the launching of a pthread which will run the
-  /// function.
-  ///
-  /// TODO: Actually look for `hlir.launch` metadata, as opposed to any
-  ///       kind of metadata.
-  /// TODO: Possibly look into actually checking if the pthread worked?
-  ///       That would require actually making new basic blocks...
-  bool runOnModule(Module &M) override {
-    bool Changed = false;
-    std::list<Instruction *> LaunchCalls;
-    this->initTypes(M);
-
-    // For Every Function
-    for (auto &F : M) {
-      // For Every Basic Block
-      for (auto &BB : F) {
-        // For Every Instruction
-        for (auto &I : BB) {
-          // NOTE: I first gather, then operate so that I can delete the
-          // instructions and continue to iterate.
-          if (isa<CallInst>(I) && I.hasMetadata()) {
-            LaunchCalls.push_back(&I);
-          }
-        }
-      }
-    }
-
-    for (auto &I : LaunchCalls) {
-      Changed |= LowerLaunchCall(&M, cast<CallInst>(I));
-    }
-
-    return Changed;
-  }
 
 }; // class HLIRLower
 } // namespace
 
-char HLIRLower::ID = 0;
-static RegisterPass<HLIRLower> X("hlir", "Lower HLIR to LLIR");
+char HLIRLowerPThread::ID = 0;
+static RegisterPass<HLIRLowerPThread> X("hlir.pthread",
+                                        "Lower HLIR to LLIR with pthreads");

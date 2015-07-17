@@ -11,5 +11,6 @@ if(WIN32 OR CYGWIN)
 endif()
 
 add_llvm_loadable_module( LLVMHLIR
-  HLIR.cpp
+  HLIRLower.cpp
+  HLIRLowerPThread.cpp
   )
