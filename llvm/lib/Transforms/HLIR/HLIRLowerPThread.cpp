@@ -1,19 +1,12 @@
-//===- HLIR.cpp - Example code from "Writing an LLVM Pass" ---------------===//
+//===- HLIRLowerPThread.cpp - Lower HLIR into pthreads  -------------------===//
 //
-//                     The LLVM Compiler Infrastructure
+//                     Project Ares
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// This file is distributed under the expression permission of Los Alamos
+// National laboratory. It is Licensed under the BSD-3 license. For more
+// information, see LICENSE.md in the Ares root directory.
 //
 //===----------------------------------------------------------------------===//
-//
-/// This file contains proof-of-concept passes for the HLIR project at LANL.
-/// Currently, it contains a single pass (HLIRLower) which will lower HLIR
-/// into LLVM IR. This lowering can currently handle the following HLIR
-/// constructs...
-/// - LaunchCall
-///   Allows function calls with the hlir.launch metadata node to be wrapped
-///   into pthreads, not unlike go routines in the go language.
 //
 //===----------------------------------------------------------------------===//
 #include <list>
