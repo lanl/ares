@@ -122,3 +122,5 @@ install_manifest.txt
 .ninja_deps
 .ninja_log
 
+### Project Specific ###
+build/
