@@ -33,76 +33,110 @@ private:
   Function *pthread_exit;
   Function *pthread_join;
 
-  /// Common Types
-  PointerType *VoidPtrTy;
+  /// Common Type
   PointerType *PthreadAttrPtrTy;
-  PointerType *Int64PtrTy;
-  PointerType *StartFTy;
-  FunctionType *CreateTy;
-  FunctionType *ExitTy;
-  FunctionType *JoinTy;
 
   /// Maps a function to a wrapped version of that function which is
   /// able to be called by llvm.
   std::map<Function *, Function *> FuncToWrapFunc;
-  std::map<Function *, StructType *> FuncToWrapArg;
+  std::map<Function *, StructType *> FuncToStruct;
 
-  /// Initialize all types that are used in this pass (really just for
-  /// convenience).
-  bool InitLower(Module &M) {
-    this->VoidPtrTy = Type::getInt8PtrTy(M.getContext());
-    this->Int64PtrTy = Type::getInt64PtrTy(M.getContext());
-
-    Type *StructComps[2] = {
-        Type::getInt64Ty(M.getContext()),
-        ArrayType::get(Type::getInt8Ty(M.getContext()), 48)};
-    Type *StructTy = StructType::create(StructComps, "union.pthread_attr_t");
-    this->PthreadAttrPtrTy = PointerType::get(StructTy, 0);
-
-    Type *StartFArgTy[1] = {this->VoidPtrTy};
-    this->StartFTy = PointerType::get(
-        FunctionType::get(this->VoidPtrTy, StartFArgTy, false), 0);
-
-    /*
-      int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
-      void *(*start_routine) (void *), void *arg);
-    */
-    Type *PthreadArgsTy[4] = {this->Int64PtrTy, this->PthreadAttrPtrTy,
-                              this->StartFTy, this->VoidPtrTy};
-    this->CreateTy = FunctionType::get(IntegerType::get(M.getContext(), 32),
-                                       PthreadArgsTy, false);
-
-    /*
-      void pthread_exit(void *retval);
-    */
-    Type *ExitArgsTy[1] = {this->VoidPtrTy};
-    this->ExitTy =
-        FunctionType::get(Type::getVoidTy(M.getContext()), ExitArgsTy, false);
-
-    /*
-      int pthread_join(pthread_t thread, void **retval);
-    */
-    Type *JoinArgsTy[2] = {Type::getInt64Ty(M.getContext()),
-                           PointerType::get(this->VoidPtrTy, 0)};
-    this->JoinTy = FunctionType::get(Type::getInt32PtrTy(M.getContext()),
-                                     JoinArgsTy, false);
-
-    return false;
-  }
+  bool InitLower(Module &M) { return false; }
 
   /// Make a declaration of `pthread_create` if necessary. Returns whether or
   /// not the module was changed.
   ///
   /// TODO: Currently always makes the declaration.
   bool initPthreadCreate(Module *M) {
+    /*
+      struct pthread_attr_t {
+        long;
+        char[48];
+      }
+    */
+    Type *StructComps[2] = {
+        Type::getInt64Ty(M->getContext()),
+        ArrayType::get(Type::getInt8Ty(M->getContext()), 48)};
+    PthreadAttrPtrTy = PointerType::get(
+        StructType::create(StructComps, "union.pthread_attr_t"), 0);
+
+    /*
+       void (*start)(void *args)
+    */
+    Type *VoidPtrArgTy[1] = {Type::getInt8PtrTy(M->getContext())};
+    Type *StartFTy =
+        PointerType::get(FunctionType::get(Type::getInt8PtrTy(M->getContext()),
+                                           VoidPtrArgTy, false),
+                         0);
+
+    /*
+      int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+      void *(*start_routine) (void *), void *arg);
+    */
+    Type *PthreadArgsTy[4] = {Type::getInt64PtrTy(M->getContext()),
+                              PthreadAttrPtrTy, StartFTy,
+                              Type::getInt8PtrTy(M->getContext())};
+    FunctionType *CreateTy = FunctionType::get(
+        Type::getInt32Ty(M->getContext()), PthreadArgsTy, false);
     this->pthread_create = Function::Create(CreateTy, Function::ExternalLinkage,
                                             "pthread_create", M);
+
+    /*
+     void pthread_exit(void *retval);
+   */
+    FunctionType *ExitTy = FunctionType::get(Type::getVoidTy(M->getContext()),
+                                             VoidPtrArgTy, false);
     this->pthread_exit =
         Function::Create(ExitTy, Function::ExternalLinkage, "pthread_exit", M);
+
+    /*
+      int pthread_join(pthread_t thread, void **retval);
+    */
+    Type *JoinArgsTy[2] = {
+        Type::getInt64Ty(M->getContext()),
+        PointerType::get(Type::getInt8PtrTy(M->getContext()), 0)};
+    FunctionType *JoinTy =
+        FunctionType::get(Type::getInt32Ty(M->getContext()), JoinArgsTy, false);
     this->pthread_join =
         Function::Create(JoinTy, Function::ExternalLinkage, "pthread_join", M);
 
     return true;
+  }
+
+  /// Get or create a wrapper struct for a given function. Saves structs in the
+  /// `FuncToStruct` map.
+  ///
+  /// Struct will have the following shape:
+  ///     struct {
+  ///       <return type | int>;
+  ///       Semaphore;
+  ///       arg1;
+  ///       arg2;
+  ///       ...
+  ///     }
+  StructType *GetFuncStruct(Function *F) {
+    StructType *WrapTy = NULL;
+
+    if (this->FuncToWrapFunc.find(F) == this->FuncToWrapFunc.end()) {
+      std::vector<Type *> Members;
+
+      if (StructType::isValidElementType(F->getReturnType())) {
+        Members.push_back(F->getReturnType());
+      } else {
+        Members.push_back(Type::getInt32Ty(F->getContext()));
+      }
+
+      for (auto param : F->getFunctionType()->params()) {
+        Members.push_back(param);
+      }
+
+      WrapTy = StructType::create(ArrayRef<Type *>(Members));
+      this->FuncToStruct.emplace(F, WrapTy);
+    } else {
+      WrapTy = FuncToStruct[F];
+    }
+
+    return WrapTy;
   }
 
   /// Declare and return a structure with elements equal to the argument types
@@ -129,8 +163,9 @@ private:
   /// pthread.
   Function *makeWrapperFunction(Module *M, Function *Func, StructType *WrapTy) {
     // Actually make the function
-    Type *Arg[1] = {this->VoidPtrTy};
-    FunctionType *FuncTy = FunctionType::get(this->VoidPtrTy, Arg, false);
+    Type *Arg[1] = {Type::getInt8PtrTy(M->getContext())};
+    FunctionType *FuncTy =
+        FunctionType::get(Type::getInt8PtrTy(M->getContext()), Arg, false);
     Function *WrappedFunc =
         Function::Create(FuncTy, Function::ExternalLinkage,
                          "hlir.pthread.wrapped." + Func->getName(), M);
@@ -140,47 +175,38 @@ private:
     IRBuilder<> B(Block);
     std::vector<Value *> UnpackedArgs;
     Value *PackedArg;
-    // Either the first element of a struct is a return, or a param.
-    // This turnary generates the appropriate offset.
-    int HasReturn = Func->getFunctionType()->getReturnType() !=
-                            Type::getVoidTy(Func->getContext())
-                        ? 1
-                        : 0;
 
-    // If there are args/returns, we need to unpack them
-    if (WrapTy) {
-      // Get the input struct
-      AllocaInst *PtrArg = B.CreateAlloca(this->VoidPtrTy);
-      B.CreateStore(WrappedFunc->arg_begin(), PtrArg);
-      PackedArg = B.CreateLoad(PtrArg);
-      PackedArg = B.CreateBitCast(PackedArg, PointerType::get(WrapTy, 0));
+    // Get the input struct
+    AllocaInst *PtrArg = B.CreateAlloca(Type::getInt8PtrTy(M->getContext()));
+    B.CreateStore(WrappedFunc->arg_begin(), PtrArg);
+    PackedArg = B.CreateLoad(PtrArg);
+    PackedArg = B.CreateBitCast(PackedArg, PointerType::get(WrapTy, 0));
 
-      int ElemIndex = 0;
-      for (auto _ : WrapTy->elements().slice(HasReturn)) {
-        // Those types are NECESSARY
-        Value *GEPIndex[2] = {
-            ConstantInt::get(Type::getInt64Ty(Func->getContext()), 0),
-            ConstantInt::get(Type::getInt32Ty(Func->getContext()),
-                             ElemIndex + HasReturn)};
-        Value *ElemPtr = B.CreateGEP(PackedArg, GEPIndex);
-        // Value *Elem = B.CreateLoad(ElemPtr);
-        UnpackedArgs.push_back(B.CreateLoad(ElemPtr));
-        ElemIndex++;
-      }
+    int ElemIndex = 0;
+    for (auto _ : WrapTy->elements().slice(1)) {
+      // Those types are NECESSARY
+      Value *GEPIndex[2] = {
+          ConstantInt::get(Type::getInt64Ty(Func->getContext()), 0),
+          ConstantInt::get(Type::getInt32Ty(Func->getContext()),
+                           ElemIndex + 1)};
+      Value *ElemPtr = B.CreateGEP(PackedArg, GEPIndex);
+      // Value *Elem = B.CreateLoad(ElemPtr);
+      UnpackedArgs.push_back(B.CreateLoad(ElemPtr));
+      ElemIndex++;
     }
 
     // Call The function we are wrapping
     Value *RetVal = B.CreateCall(Func, ArrayRef<Value *>(UnpackedArgs));
 
     // If need be, store the return.
-    if (HasReturn) {
+    if (StructType::isValidElementType(Func->getReturnType())) {
       Value *GEPIndex[2] = {
           ConstantInt::get(Type::getInt64Ty(Func->getContext()), 0),
           ConstantInt::get(Type::getInt32Ty(Func->getContext()), 0)};
       B.CreateStore(RetVal, B.CreateGEP(PackedArg, GEPIndex));
     }
 
-    B.CreateRet(ConstantPointerNull::get(this->VoidPtrTy));
+    B.CreateRet(ConstantPointerNull::get(Type::getInt8PtrTy(M->getContext())));
     return WrappedFunc;
   }
 
@@ -193,23 +219,16 @@ private:
     // Get wrapped function, or wrap function if it does not currently have
     // a wrapped form
     if (this->FuncToWrapFunc.find(F) == this->FuncToWrapFunc.end()) {
-      WrappedArgTy = makeArgStructType(F);
-      this->FuncToWrapArg.emplace(F, WrappedArgTy);
+      WrappedArgTy = GetFuncStruct(F);
+      this->FuncToStruct.emplace(F, WrappedArgTy);
       this->FuncToWrapFunc.emplace(F, makeWrapperFunction(M, F, WrappedArgTy));
     }
 
     WrappedF = this->FuncToWrapFunc[F];
-    WrappedArgTy = this->FuncToWrapArg[F];
+    WrappedArgTy = this->GetFuncStruct(F);
     if (!this->pthread_create) {
       initPthreadCreate(M);
     }
-
-    // JUST like with making the wrapped function, we are going to generate
-    // an offset for return values.
-    int HasReturn = F->getFunctionType()->getReturnType() !=
-                            Type::getVoidTy(F->getContext())
-                        ? 1
-                        : 0;
 
     // Alloc a thread, pack args, launch pthread, remove old instruction.
     Value *ThreadPtr = B.CreateAlloca(Type::getInt64Ty(M->getContext()));
@@ -218,15 +237,14 @@ private:
     for (auto &Arg : I->arg_operands()) {
       Value *GEPIndex[2] = {
           ConstantInt::get(Type::getInt64Ty(M->getContext()), 0),
-          ConstantInt::get(Type::getInt32Ty(M->getContext()),
-                           ArgId + HasReturn)};
+          ConstantInt::get(Type::getInt32Ty(M->getContext()), ArgId + 1)};
       B.CreateStore(Arg, B.CreateGEP(ArgPtr, GEPIndex));
       ArgId++;
     }
 
     Value *PThreadArgs[4] = {
-        ThreadPtr, ConstantPointerNull::get(this->PthreadAttrPtrTy), WrappedF,
-        B.CreateBitCast(ArgPtr, this->VoidPtrTy)};
+        ThreadPtr, ConstantPointerNull::get(PthreadAttrPtrTy), WrappedF,
+        B.CreateBitCast(ArgPtr, Type::getInt8PtrTy(M->getContext()))};
     B.CreateCall(this->pthread_create, PThreadArgs);
 
     // Before we erase I, we need to find the first of use of it, and invoke
@@ -241,9 +259,9 @@ private:
         IRBuilder<> ForceRet(Inst);
 
         // FIRST, wait for the thread
-        Value *JoinArgs[2] = {
-            ForceRet.CreateLoad(ThreadPtr),
-            ConstantPointerNull::get(PointerType::get(this->VoidPtrTy, 0))};
+        Value *JoinArgs[2] = {ForceRet.CreateLoad(ThreadPtr),
+                              ConstantPointerNull::get(PointerType::get(
+                                  Type::getInt8PtrTy(M->getContext()), 0))};
         ForceRet.CreateCall(this->pthread_join, JoinArgs);
 
         // NEXT: get the ret out of the struct
