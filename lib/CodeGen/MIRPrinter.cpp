@@ -14,12 +14,14 @@
 
 #include "MIRPrinter.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/MIRYamlMapping.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSlotTracker.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -69,6 +71,8 @@ public:
   void convert(yaml::MachineFunction &MF, const MachineRegisterInfo &RegInfo,
                const TargetRegisterInfo *TRI);
   void convert(yaml::MachineFrameInfo &YamlMFI, const MachineFrameInfo &MFI);
+  void convert(yaml::MachineFunction &MF,
+               const MachineConstantPool &ConstantPool);
   void convert(ModuleSlotTracker &MST, yaml::MachineJumpTable &YamlJTI,
                const MachineJumpTableInfo &JTI);
   void convert(ModuleSlotTracker &MST, yaml::MachineBasicBlock &YamlMBB,
@@ -144,6 +148,8 @@ void MIRPrinter::print(const MachineFunction &MF) {
   convert(YamlMF, MF.getRegInfo(), MF.getSubtarget().getRegisterInfo());
   convert(YamlMF.FrameInfo, *MF.getFrameInfo());
   convertStackObjects(YamlMF, *MF.getFrameInfo());
+  if (const auto *ConstantPool = MF.getConstantPool())
+    convert(YamlMF, *ConstantPool);
 
   ModuleSlotTracker MST(MF.getFunction()->getParent());
   if (const auto *JumpTableInfo = MF.getJumpTableInfo())
@@ -246,6 +252,25 @@ void MIRPrinter::convertStackObjects(yaml::MachineFunction &MF,
     MF.StackObjects.push_back(YamlObject);
     StackObjectOperandMapping.insert(std::make_pair(
         I, FrameIndexOperand::create(YamlObject.Name.Value, ID++)));
+  }
+}
+
+void MIRPrinter::convert(yaml::MachineFunction &MF,
+                         const MachineConstantPool &ConstantPool) {
+  unsigned ID = 0;
+  for (const MachineConstantPoolEntry &Constant : ConstantPool.getConstants()) {
+    // TODO: Serialize target specific constant pool entries.
+    if (Constant.isMachineConstantPoolEntry())
+      llvm_unreachable("Can't print target specific constant pool entries yet");
+
+    yaml::MachineConstantPoolValue YamlConstant;
+    std::string Str;
+    raw_string_ostream StrOS(Str);
+    Constant.Val.ConstVal->printAsOperand(StrOS);
+    YamlConstant.ID = ID++;
+    YamlConstant.Value = StrOS.str();
+    YamlConstant.Alignment = Constant.getAlignment();
+    MF.Constants.push_back(YamlConstant);
   }
 }
 
@@ -398,9 +423,18 @@ void MIPrinter::print(const MachineOperand &Op, const TargetRegisterInfo *TRI) {
   case MachineOperand::MO_FrameIndex:
     printStackObjectReference(Op.getIndex());
     break;
+  case MachineOperand::MO_ConstantPoolIndex:
+    OS << "%const." << Op.getIndex();
+    // TODO: Print offset and target flags.
+    break;
   case MachineOperand::MO_JumpTableIndex:
     OS << "%jump-table." << Op.getIndex();
     // TODO: Print target flags.
+    break;
+  case MachineOperand::MO_ExternalSymbol:
+    OS << '$';
+    printLLVMNameWithoutPrefix(OS, Op.getSymbolName());
+    // TODO: Print the target flags.
     break;
   case MachineOperand::MO_GlobalAddress:
     Op.getGlobal()->printAsOperand(OS, /*PrintType=*/false, MST);
