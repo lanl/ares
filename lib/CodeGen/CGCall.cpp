@@ -1421,12 +1421,15 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
         FuncAttrs.addAttribute(llvm::Attribute::NoReturn);
     }
 
-    // 'const' and 'pure' attribute functions are also nounwind.
+    // 'const', 'pure' and 'noalias' attributed functions are also nounwind.
     if (TargetDecl->hasAttr<ConstAttr>()) {
       FuncAttrs.addAttribute(llvm::Attribute::ReadNone);
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
     } else if (TargetDecl->hasAttr<PureAttr>()) {
       FuncAttrs.addAttribute(llvm::Attribute::ReadOnly);
+      FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
+    } else if (TargetDecl->hasAttr<NoAliasAttr>()) {
+      FuncAttrs.addAttribute(llvm::Attribute::ArgMemOnly);
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
     }
     if (TargetDecl->hasAttr<RestrictAttr>())
@@ -2829,7 +2832,7 @@ void CodeGenFunction::EmitCallArgs(CallArgList &Args,
     for (int I = ArgTypes.size() - 1; I >= 0; --I) {
       CallExpr::const_arg_iterator Arg = ArgBeg + I;
       EmitCallArg(Args, *Arg, ArgTypes[I]);
-      EmitNonNullArgCheck(Args.back().RV, ArgTypes[I], Arg->getExprLoc(),
+      EmitNonNullArgCheck(Args.back().RV, ArgTypes[I], (*Arg)->getExprLoc(),
                           CalleeDecl, ParamsToSkip + I);
     }
 
@@ -2843,7 +2846,7 @@ void CodeGenFunction::EmitCallArgs(CallArgList &Args,
     CallExpr::const_arg_iterator Arg = ArgBeg + I;
     assert(Arg != ArgEnd);
     EmitCallArg(Args, *Arg, ArgTypes[I]);
-    EmitNonNullArgCheck(Args.back().RV, ArgTypes[I], Arg->getExprLoc(),
+    EmitNonNullArgCheck(Args.back().RV, ArgTypes[I], (*Arg)->getExprLoc(),
                         CalleeDecl, ParamsToSkip + I);
   }
 }
