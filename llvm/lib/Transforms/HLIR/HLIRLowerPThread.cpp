@@ -117,7 +117,7 @@ private:
   StructType *GetFuncStruct(Function *F) {
     StructType *WrapTy = NULL;
 
-    if (this->FuncToWrapFunc.find(F) == this->FuncToWrapFunc.end()) {
+    if (this->FuncToStruct.find(F) == this->FuncToStruct.end()) {
       std::vector<Type *> Members;
 
       if (StructType::isValidElementType(F->getReturnType())) {
@@ -139,93 +139,116 @@ private:
     return WrapTy;
   }
 
-  /// Declare and return a structure with elements equal to the argument types
-  /// of a function. The first element will be the return value, unless the
-  /// return value is void.
-  StructType *makeArgStructType(Function *Func) {
-    StructType *WrapTy = NULL;
-    std::vector<Type *> StructContent;
+  /// Simply declares a wrapper function for F with an entry block, and
+  /// returns it.
+  ///
+  /// Used almost exclusively by `GetWrapperFunction`.
+  Function *DeclareWrapFunc(Function *F, Module *M) {
+    Type *Arg[1] = {Type::getInt8PtrTy(F->getContext())};
+    Function *WF = Function::Create(
+        FunctionType::get(Type::getInt8PtrTy(F->getContext()), Arg, false),
+        Function::ExternalLinkage, "hlir.pthread.wrapped." + F->getName(), M);
+    BasicBlock::Create(M->getContext(), "entry", WF, 0);
 
-    if (Func->getFunctionType()->getReturnType() !=
-        Type::getVoidTy(Func->getContext())) {
-      StructContent.push_back(Func->getFunctionType()->getReturnType());
+    return WF;
+  }
+
+  /// From the first (and only) argument from a wrapper function, unloads
+  /// it into stack memory, and bitcasts it to the known struct type.
+  ///
+  /// TODO: Copy semantics, and copy strait into the correct type.
+  ///
+  /// Used almost exclusively by `GetWrapperFunction`.
+  Value *LoadPackedArgs(Function *WF, StructType *Ty) {
+    IRBuilder<> B(&WF->getEntryBlock());
+
+    AllocaInst *PtrArg = B.CreateAlloca(Type::getInt8PtrTy(WF->getContext()));
+    B.CreateStore(WF->arg_begin(), PtrArg);
+    Value *PackedArgs = B.CreateLoad(PtrArg);
+    PackedArgs = B.CreateBitCast(PackedArgs, PointerType::get(Ty, 0));
+
+    return PackedArgs;
+  }
+
+  /// Inside a wrapper function, this function will unpack all arguments.
+  /// It will then return an ArrayRef of the unpacked args which can be
+  /// used for a function call.
+  ///
+  /// Used almost exclusively by `GetWrapperFunction`.
+  std::vector<Value *> UnpackArgs(Function *WF, StructType *WrapTy,
+                                  Value *PackedArgs) {
+    std::vector<Value *> UnpackedArgs;
+    IRBuilder<> B(&WF->getEntryBlock());
+
+    for (unsigned int ElemIndex = 0; ElemIndex < WrapTy->elements().size() - 1;
+         ElemIndex++) {
+      Value *GEPIndex[2] = {
+          ConstantInt::get(Type::getInt64Ty(WF->getContext()), 0),
+          ConstantInt::get(Type::getInt32Ty(WF->getContext()), ElemIndex + 1)};
+      Value *ElemPtr = B.CreateGEP(PackedArgs, GEPIndex);
+      // Value *Elem = B.CreateLoad(ElemPtr);
+      UnpackedArgs.push_back(B.CreateLoad(ElemPtr));
     }
 
-    for (auto param : Func->getFunctionType()->params()) {
-      StructContent.push_back(param);
-    }
+    return UnpackedArgs;
+  }
 
-    WrapTy = StructType::create(ArrayRef<Type *>(StructContent));
-    return WrapTy;
+  /// Given a wrapper function and a function to wrap, will actually call the
+  /// to-be-wrapped function. If needed, the result will be stored in the first
+  /// element to the structure pointed to by RetPtr.
+  ///
+  /// Used almost exclusively by `GetWrapperFunction`.
+  void WrapFuncCall(Function *WF, Function *F, ArrayRef<Value *> UnpackedArgs,
+                    Value *RetPtr) {
+    IRBuilder<> B(&WF->getEntryBlock());
+    Value *RetVal = B.CreateCall(F, UnpackedArgs);
+
+    // If need be, store the return.
+    if (StructType::isValidElementType(F->getReturnType())) {
+      Value *GEPIndex[2] = {
+          ConstantInt::get(Type::getInt64Ty(F->getContext()), 0),
+          ConstantInt::get(Type::getInt32Ty(F->getContext()), 0)};
+      B.CreateStore(RetVal, B.CreateGEP(RetPtr, GEPIndex));
+    }
   }
 
   /// Declare, construct, and return a Function wrapped to be launched by a
-  /// pthread.
-  Function *makeWrapperFunction(Module *M, Function *Func, StructType *WrapTy) {
-    // Actually make the function
-    Type *Arg[1] = {Type::getInt8PtrTy(M->getContext())};
-    FunctionType *FuncTy =
-        FunctionType::get(Type::getInt8PtrTy(M->getContext()), Arg, false);
-    Function *WrappedFunc =
-        Function::Create(FuncTy, Function::ExternalLinkage,
-                         "hlir.pthread.wrapped." + Func->getName(), M);
+  /// pthread. Saves functions in the `FuncToWrapFunc` map.
+  ///
+  /// Functions will have the following structure.
+  ///  void *f(<ret> (*func)(<args>), void* wrap_struct) {
+  ///   *wrap_struct = func(wrap_struct.x, wrap_struct.y, ...);
+  ///   return 0;
+  /// }
+  Function *GetWrapperFunction(Module *M, Function *F, StructType *WrapTy) {
+    Function *WF;
 
-    BasicBlock *Block =
-        BasicBlock::Create(Func->getContext(), "entry", WrappedFunc, 0);
-    IRBuilder<> B(Block);
-    std::vector<Value *> UnpackedArgs;
-    Value *PackedArg;
+    if (this->FuncToWrapFunc.find(F) == this->FuncToWrapFunc.end()) {
+      // clang-format off
+      WF                                = DeclareWrapFunc(F, M);
+      Value *PackedArgs                 = LoadPackedArgs(WF, WrapTy);
+      std::vector<Value *> UnpackedArgs = UnpackArgs(WF, WrapTy, PackedArgs);
+      // clang-format on
 
-    // Get the input struct
-    AllocaInst *PtrArg = B.CreateAlloca(Type::getInt8PtrTy(M->getContext()));
-    B.CreateStore(WrappedFunc->arg_begin(), PtrArg);
-    PackedArg = B.CreateLoad(PtrArg);
-    PackedArg = B.CreateBitCast(PackedArg, PointerType::get(WrapTy, 0));
+      WrapFuncCall(WF, F, ArrayRef<Value *>(UnpackedArgs), PackedArgs);
+      IRBuilder<> B(&WF->getEntryBlock());
+      B.CreateRet(
+          ConstantPointerNull::get(Type::getInt8PtrTy(M->getContext())));
 
-    int ElemIndex = 0;
-    for (auto _ : WrapTy->elements().slice(1)) {
-      // Those types are NECESSARY
-      Value *GEPIndex[2] = {
-          ConstantInt::get(Type::getInt64Ty(Func->getContext()), 0),
-          ConstantInt::get(Type::getInt32Ty(Func->getContext()),
-                           ElemIndex + 1)};
-      Value *ElemPtr = B.CreateGEP(PackedArg, GEPIndex);
-      // Value *Elem = B.CreateLoad(ElemPtr);
-      UnpackedArgs.push_back(B.CreateLoad(ElemPtr));
-      ElemIndex++;
+      this->FuncToWrapFunc.emplace(F, WF);
+    } else {
+      WF = this->FuncToWrapFunc[F];
     }
 
-    // Call The function we are wrapping
-    Value *RetVal = B.CreateCall(Func, ArrayRef<Value *>(UnpackedArgs));
-
-    // If need be, store the return.
-    if (StructType::isValidElementType(Func->getReturnType())) {
-      Value *GEPIndex[2] = {
-          ConstantInt::get(Type::getInt64Ty(Func->getContext()), 0),
-          ConstantInt::get(Type::getInt32Ty(Func->getContext()), 0)};
-      B.CreateStore(RetVal, B.CreateGEP(PackedArg, GEPIndex));
-    }
-
-    B.CreateRet(ConstantPointerNull::get(Type::getInt8PtrTy(M->getContext())));
-    return WrappedFunc;
+    return WF;
   }
 
   bool LowerLaunchCall(Module *M, CallInst *I) {
     IRBuilder<> B(I);
     Function *F = I->getCalledFunction();
-    Function *WrappedF;
-    StructType *WrappedArgTy;
+    StructType *WrappedArgTy = GetFuncStruct(F);
+    Function *WrappedF = GetWrapperFunction(M, F, WrappedArgTy);
 
-    // Get wrapped function, or wrap function if it does not currently have
-    // a wrapped form
-    if (this->FuncToWrapFunc.find(F) == this->FuncToWrapFunc.end()) {
-      WrappedArgTy = GetFuncStruct(F);
-      this->FuncToStruct.emplace(F, WrappedArgTy);
-      this->FuncToWrapFunc.emplace(F, makeWrapperFunction(M, F, WrappedArgTy));
-    }
-
-    WrappedF = this->FuncToWrapFunc[F];
-    WrappedArgTy = this->GetFuncStruct(F);
     if (!this->pthread_create) {
       initPthreadCreate(M);
     }
