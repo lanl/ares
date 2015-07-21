@@ -719,6 +719,12 @@ static void getARMTargetFeatures(const Driver &D, const llvm::Triple &Triple,
       Features.push_back("+long-calls");
   }
 
+  // llvm does not support reserving registers in general. There is support
+  // for reserving r9 on ARM though (defined as a platform-specific register
+  // in ARM EABI).
+  if (Args.hasArg(options::OPT_ffixed_r9))
+    Features.push_back("+reserve-r9");
+
   // The kext linker doesn't know how to deal with movw/movt.
   if (KernelOrKext)
     Features.push_back("+no-movt");
@@ -828,13 +834,6 @@ void Clang::AddARMTargetArgs(const ArgList &Args, ArgStringList &CmdArgs,
                     options::OPT_mno_implicit_float, true))
     CmdArgs.push_back("-no-implicit-float");
 
-  // llvm does not support reserving registers in general. There is support
-  // for reserving r9 on ARM though (defined as a platform-specific register
-  // in ARM EABI).
-  if (Args.hasArg(options::OPT_ffixed_r9)) {
-    CmdArgs.push_back("-backend-option");
-    CmdArgs.push_back("-arm-reserve-r9");
-  }
 }
 
 /// getAArch64TargetCPU - Get the (LLVM) name of the AArch64 cpu we are
@@ -844,7 +843,7 @@ static std::string getAArch64TargetCPU(const ArgList &Args) {
   std::string CPU;
   // If we have -mtune or -mcpu, use that.
   if ((A = Args.getLastArg(options::OPT_mtune_EQ))) {
-    CPU = A->getValue();
+    CPU = StringRef(A->getValue()).lower();
   } else if ((A = Args.getLastArg(options::OPT_mcpu_EQ))) {
     StringRef Mcpu = A->getValue();
     CPU = Mcpu.split("+").first.lower();
@@ -1908,10 +1907,11 @@ static bool
 getAArch64MicroArchFeaturesFromMtune(const Driver &D, StringRef Mtune,
                                      const ArgList &Args,
                                      std::vector<const char *> &Features) {
+  std::string MtuneLowerCase = Mtune.lower();
   // Handle CPU name is 'native'.
-  if (Mtune == "native")
-    Mtune = llvm::sys::getHostCPUName();
-  if (Mtune == "cyclone") {
+  if (MtuneLowerCase == "native")
+    MtuneLowerCase = llvm::sys::getHostCPUName();
+  if (MtuneLowerCase == "cyclone") {
     Features.push_back("+zcm");
     Features.push_back("+zcz");
   }
@@ -4800,7 +4800,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // Forward -Xclang arguments to -cc1, and -mllvm arguments to the LLVM option
   // parser.
   Args.AddAllArgValues(CmdArgs, options::OPT_Xclang);
-  bool OptDisabled = false;
   for (const Arg *A : Args.filtered(options::OPT_mllvm)) {
     A->claim();
 
@@ -4808,17 +4807,15 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     // it and developers have been trained to spell it with -mllvm.
     if (StringRef(A->getValue(0)) == "-disable-llvm-optzns") {
       CmdArgs.push_back("-disable-llvm-optzns");
-      OptDisabled = true;
     } else
       A->render(Args, CmdArgs);
   }
 
   // With -save-temps, we want to save the unoptimized bitcode output from the
-  // CompileJobAction, so disable optimizations if they are not already
-  // disabled.
-  if (C.getDriver().isSaveTempsEnabled() && !OptDisabled &&
-      isa<CompileJobAction>(JA))
-    CmdArgs.push_back("-disable-llvm-optzns");
+  // CompileJobAction, use -disable-llvm-passes to get pristine IR generated
+  // by the frontend.
+  if (C.getDriver().isSaveTempsEnabled() && isa<CompileJobAction>(JA))
+    CmdArgs.push_back("-disable-llvm-passes");
 
   if (Output.getType() == types::TY_Dependencies) {
     // Handled with other dependency code.
@@ -4875,11 +4872,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // Host-side cuda compilation receives device-side outputs as Inputs[1...].
   // Include them with -fcuda-include-gpubinary.
   if (IsCuda && Inputs.size() > 1)
-    for (InputInfoList::const_iterator it = std::next(Inputs.begin()),
-                                       ie = Inputs.end();
-         it != ie; ++it) {
+    for (auto I = std::next(Inputs.begin()), E = Inputs.end(); I != E; ++I) {
       CmdArgs.push_back("-fcuda-include-gpubinary");
-      CmdArgs.push_back(it->getFilename());
+      CmdArgs.push_back(I->getFilename());
     }
 
   // Finally add the compile command to the compilation.
@@ -5779,6 +5774,26 @@ void hexagon::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                           CmdArgs, Inputs));
 }
 // Hexagon tools end.
+
+void amdgpu::Linker::ConstructJob(Compilation &C, const JobAction &JA,
+                                  const InputInfo &Output,
+                                  const InputInfoList &Inputs,
+                                  const ArgList &Args,
+                                  const char *LinkingOutput) const {
+
+  std::string Linker = getToolChain().GetProgramPath(getShortName());
+  ArgStringList CmdArgs;
+  CmdArgs.push_back("-flavor");
+  CmdArgs.push_back("gnu");
+  CmdArgs.push_back("-target");
+  CmdArgs.push_back(Args.MakeArgString(getToolChain().getTripleString()));
+  AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs);
+  CmdArgs.push_back("-o");
+  CmdArgs.push_back(Output.getFilename());
+  C.addCommand(llvm::make_unique<Command>(JA, *this, Args.MakeArgString(Linker),
+                                          CmdArgs, Inputs));
+}
+// AMDGPU tools end.
 
 const std::string arm::getARMArch(const ArgList &Args,
                                   const llvm::Triple &Triple) {
