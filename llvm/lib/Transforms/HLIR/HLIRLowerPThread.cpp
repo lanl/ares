@@ -243,39 +243,34 @@ private:
     return WF;
   }
 
-  bool LowerLaunchCall(Module *M, CallInst *I) {
-    IRBuilder<> B(I);
-    Function *F = I->getCalledFunction();
-    StructType *WrappedArgTy = GetFuncStruct(F);
-    Function *WrappedF = GetWrapperFunction(M, F, WrappedArgTy);
-
-    if (!this->pthread_create) {
-      initPthreadCreate(M);
-    }
-
-    // Alloc a thread, pack args, launch pthread, remove old instruction.
-    Value *ThreadPtr = B.CreateAlloca(Type::getInt64Ty(M->getContext()));
-    Value *ArgPtr = B.CreateAlloca(WrappedArgTy);
+  /// Given a call instruction, will wrap up the call into a pthread launch.
+  ///
+  /// TODO: Reduce the number of arguments this takes.
+  void LaunchWrapper(CallInst *I, Function *WF, StructType *Ty, Value *ArgPtr,
+                     Value *ThreadPtr, IRBuilder<> &B) {
     int ArgId = 0;
     for (auto &Arg : I->arg_operands()) {
       Value *GEPIndex[2] = {
-          ConstantInt::get(Type::getInt64Ty(M->getContext()), 0),
-          ConstantInt::get(Type::getInt32Ty(M->getContext()), ArgId + 1)};
+          ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
+          ConstantInt::get(Type::getInt32Ty(I->getContext()), ArgId + 1)};
       B.CreateStore(Arg, B.CreateGEP(ArgPtr, GEPIndex));
       ArgId++;
     }
 
     Value *PThreadArgs[4] = {
-        ThreadPtr, ConstantPointerNull::get(PthreadAttrPtrTy), WrappedF,
-        B.CreateBitCast(ArgPtr, Type::getInt8PtrTy(M->getContext()))};
+        ThreadPtr, ConstantPointerNull::get(PthreadAttrPtrTy), WF,
+        B.CreateBitCast(ArgPtr, Type::getInt8PtrTy(I->getContext()))};
     B.CreateCall(this->pthread_create, PThreadArgs);
+  }
 
-    // Before we erase I, we need to find the first of use of it, and invoke
-    // a force. We need to keep in mind that this may be in another block...
-    // Not... not really sure what to do if that is the case? Could join
-    // for EVERY possible place?
-    // FOR NOW I ASSUME THAT IT CAN ONLY FORCE WITHIN THIS BB
-    // Note: I'm not enforcing that... I'm assuming it.
+  /// Given a call that has just been wrapped into a launch, will find
+  /// THE FIRST USE, and put a force before it, and replace all further uses
+  /// with this forced value.
+  ///
+  /// This is not even a little correct. It essentially is assuming the first
+  /// use will be in the defining block. This is an assumption that was made
+  /// for prototype reasons. TODO: Generalize this technique.
+  void ForceFutures(CallInst *I, Value *ArgPtr, Value *ThreadPtr) {
     for (User *U : I->users()) {
       if (Instruction *Inst = dyn_cast<Instruction>(U)) {
         // This builder inserts before the first use.
@@ -284,14 +279,14 @@ private:
         // FIRST, wait for the thread
         Value *JoinArgs[2] = {ForceRet.CreateLoad(ThreadPtr),
                               ConstantPointerNull::get(PointerType::get(
-                                  Type::getInt8PtrTy(M->getContext()), 0))};
+                                  Type::getInt8PtrTy(I->getContext()), 0))};
         ForceRet.CreateCall(this->pthread_join, JoinArgs);
 
         // NEXT: get the ret out of the struct
         // (I know the return is there because there was a use.)
         Value *GEPIndex[2] = {
-            ConstantInt::get(Type::getInt64Ty(M->getContext()), 0),
-            ConstantInt::get(Type::getInt32Ty(M->getContext()), 0)};
+            ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
+            ConstantInt::get(Type::getInt32Ty(I->getContext()), 0)};
         Value *RetVal =
             ForceRet.CreateLoad(ForceRet.CreateGEP(ArgPtr, GEPIndex));
 
@@ -300,6 +295,26 @@ private:
         break;
       }
     }
+  }
+
+  /// Given a function call to lower, will build/lookup a wrapper function, and
+  /// launch a pthread instead. Then this function will find all uses of the old
+  /// return value, and replace them with futures.
+  bool LowerLaunchCall(Module *M, CallInst *I) {
+    Function *F = I->getCalledFunction();
+    StructType *Ty = GetFuncStruct(F);
+    Function *WF = GetWrapperFunction(M, F, Ty);
+
+    if (!this->pthread_create) {
+      initPthreadCreate(M);
+    }
+
+    IRBuilder<> B(I);
+    Value *ThreadPtr = B.CreateAlloca(Type::getInt64Ty(I->getContext()));
+    Value *ArgPtr = B.CreateAlloca(Ty);
+
+    LaunchWrapper(I, WF, Ty, ArgPtr, ThreadPtr, B);
+    ForceFutures(I, ArgPtr, ThreadPtr);
 
     I->eraseFromParent();
     return true;
