@@ -28,11 +28,10 @@ namespace {
 
 class HLIRLowerPThread : public HLIRLower {
 private:
-  // clang-format off
-  static const unsigned int ANSWER_OFFSET = 0;
-  static const unsigned int SEM_OFFSET = 1;
-  static const unsigned int ARG_OFFSET = 2;
-  // clang-format on
+  static const unsigned int RET_OFFSET = 0;
+  static const unsigned int TID_OFFSET = 1;
+  static const unsigned int SEM_OFFSET = 2;
+  static const unsigned int ARG_OFFSET = 3;
 
   /// Common Functions
   Function *pthread_create;
@@ -190,6 +189,7 @@ private:
         Members.push_back(Type::getInt32Ty(F->getContext()));
       }
 
+      Members.push_back(this->PThreadTy);
       Members.push_back(this->SemTy);
 
       for (auto param : F->getFunctionType()->params()) {
@@ -282,7 +282,7 @@ private:
     if (StructType::isValidElementType(F->getReturnType())) {
       Value *GEPIndex[2] = {
           ConstantInt::get(Type::getInt64Ty(F->getContext()), 0),
-          ConstantInt::get(Type::getInt32Ty(F->getContext()), ANSWER_OFFSET)};
+          ConstantInt::get(Type::getInt32Ty(F->getContext()), RET_OFFSET)};
       B.CreateStore(RetVal, B.CreateGEP(RetPtr, GEPIndex));
     }
   }
@@ -323,7 +323,7 @@ private:
   ///
   /// TODO: Reduce the number of arguments this takes.
   void LaunchWrapper(CallInst *I, Function *WF, StructType *Ty, Value *ArgPtr,
-                     Value *ThreadPtr, IRBuilder<> &B) {
+                     IRBuilder<> &B) {
     int ArgId = 0;
     for (auto &Arg : I->arg_operands()) {
       Value *GEPIndex[2] = {
@@ -334,8 +334,14 @@ private:
       ArgId++;
     }
 
+    Value *GEPIndex[2] = {
+        ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
+        ConstantInt::get(Type::getInt32Ty(I->getContext()),
+                         TID_OFFSET)};
+
     Value *PThreadArgs[4] = {
-        ThreadPtr, ConstantPointerNull::get(PthreadAttrPtrTy), WF,
+        B.CreateGEP(ArgPtr, GEPIndex),
+        ConstantPointerNull::get(PthreadAttrPtrTy), WF,
         B.CreateBitCast(ArgPtr, Type::getInt8PtrTy(I->getContext()))};
     B.CreateCall(this->pthread_create, PThreadArgs);
   }
@@ -347,23 +353,28 @@ private:
   /// This is not even a little correct. It essentially is assuming the first
   /// use will be in the defining block. This is an assumption that was made
   /// for prototype reasons. TODO: Generalize this technique.
-  void ForceFutures(CallInst *I, Value *ArgPtr, Value *ThreadPtr) {
+  void ForceFutures(CallInst *I, Value *ArgPtr) {
     for (User *U : I->users()) {
       if (Instruction *Inst = dyn_cast<Instruction>(U)) {
         // This builder inserts before the first use.
         IRBuilder<> ForceRet(Inst);
 
+        Value *GEPIndex[2] = {
+            ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
+            ConstantInt::get(Type::getInt32Ty(I->getContext()), TID_OFFSET)};
+
         // FIRST, wait for the thread
-        Value *JoinArgs[2] = {ForceRet.CreateLoad(ThreadPtr),
-                              ConstantPointerNull::get(PointerType::get(
-                                  Type::getInt8PtrTy(I->getContext()), 0))};
+        Value *JoinArgs[2] = {
+            ForceRet.CreateLoad(ForceRet.CreateGEP(ArgPtr, GEPIndex)),
+            ConstantPointerNull::get(
+                PointerType::get(Type::getInt8PtrTy(I->getContext()), 0))};
         ForceRet.CreateCall(this->pthread_join, JoinArgs);
 
         // NEXT: get the ret out of the struct
         // (I know the return is there because there was a use.)
-        Value *GEPIndex[2] = {
-            ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
-            ConstantInt::get(Type::getInt32Ty(I->getContext()), ANSWER_OFFSET)};
+        GEPIndex[1] =
+            ConstantInt::get(Type::getInt32Ty(I->getContext()), RET_OFFSET);
+
         Value *RetVal =
             ForceRet.CreateLoad(ForceRet.CreateGEP(ArgPtr, GEPIndex));
 
@@ -412,13 +423,13 @@ private:
     Function *WF = GetWrapperFunction(M, F, Ty);
 
     IRBuilder<> B(I);
-    Value *ThreadPtr = B.CreateAlloca(Type::getInt64Ty(I->getContext()));
+    // Value *ThreadPtr = B.CreateAlloca(Type::getInt64Ty(I->getContext()));
     Value *ArgPtr = B.CreateAlloca(Ty);
 
     InitCopyMutex(B, ArgPtr);
-    LaunchWrapper(I, WF, Ty, ArgPtr, ThreadPtr, B);
+    LaunchWrapper(I, WF, Ty, ArgPtr, B);
     WaitForCopyMutex(B, ArgPtr);
-    ForceFutures(I, ArgPtr, ThreadPtr);
+    ForceFutures(I, ArgPtr);
 
     I->eraseFromParent();
     return true;
