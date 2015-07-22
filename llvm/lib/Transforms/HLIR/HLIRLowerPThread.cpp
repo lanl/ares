@@ -28,8 +28,11 @@ namespace {
 
 class HLIRLowerPThread : public HLIRLower {
 private:
+  // clang-format off
   static const unsigned int ANSWER_OFFSET = 0;
-  static const unsigned int ARG_OFFSET = 0;
+  static const unsigned int SEM_OFFSET = 1;
+  static const unsigned int ARG_OFFSET = 2;
+  // clang-format on
 
   /// Common Functions
   Function *pthread_create;
@@ -187,6 +190,8 @@ private:
         Members.push_back(Type::getInt32Ty(F->getContext()));
       }
 
+      Members.push_back(this->SemTy);
+
       for (auto param : F->getFunctionType()->params()) {
         Members.push_back(param);
       }
@@ -241,13 +246,13 @@ private:
     std::vector<Value *> UnpackedArgs;
     IRBuilder<> B(&WF->getEntryBlock());
 
-    for (unsigned int ElemIndex = 0; ElemIndex < WrapTy->elements().size() - 1;
-         ElemIndex++) {
+    for (unsigned int ElemIndex = ARG_OFFSET;
+         ElemIndex < WrapTy->elements().size(); ElemIndex++) {
+
       Value *GEPIndex[2] = {
           ConstantInt::get(Type::getInt64Ty(WF->getContext()), 0),
-          ConstantInt::get(Type::getInt32Ty(WF->getContext()), ElemIndex + 1)};
+          ConstantInt::get(Type::getInt32Ty(WF->getContext()), ElemIndex)};
       Value *ElemPtr = B.CreateGEP(PackedArgs, GEPIndex);
-      // Value *Elem = B.CreateLoad(ElemPtr);
       UnpackedArgs.push_back(B.CreateLoad(ElemPtr));
     }
 
@@ -268,7 +273,7 @@ private:
     if (StructType::isValidElementType(F->getReturnType())) {
       Value *GEPIndex[2] = {
           ConstantInt::get(Type::getInt64Ty(F->getContext()), 0),
-          ConstantInt::get(Type::getInt32Ty(F->getContext()), 0)};
+          ConstantInt::get(Type::getInt32Ty(F->getContext()), ANSWER_OFFSET)};
       B.CreateStore(RetVal, B.CreateGEP(RetPtr, GEPIndex));
     }
   }
@@ -313,7 +318,7 @@ private:
     for (auto &Arg : I->arg_operands()) {
       Value *GEPIndex[2] = {
           ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
-          ConstantInt::get(Type::getInt32Ty(I->getContext()), ArgId + 1)};
+          ConstantInt::get(Type::getInt32Ty(I->getContext()), ArgId + ARG_OFFSET)};
       B.CreateStore(Arg, B.CreateGEP(ArgPtr, GEPIndex));
       ArgId++;
     }
@@ -347,7 +352,7 @@ private:
         // (I know the return is there because there was a use.)
         Value *GEPIndex[2] = {
             ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
-            ConstantInt::get(Type::getInt32Ty(I->getContext()), 0)};
+            ConstantInt::get(Type::getInt32Ty(I->getContext()), ANSWER_OFFSET)};
         Value *RetVal =
             ForceRet.CreateLoad(ForceRet.CreateGEP(ArgPtr, GEPIndex));
 
@@ -362,13 +367,13 @@ private:
   /// launch a pthread instead. Then this function will find all uses of the old
   /// return value, and replace them with futures.
   bool LowerLaunchCall(Module *M, CallInst *I) {
-    Function *F = I->getCalledFunction();
-    StructType *Ty = GetFuncStruct(F);
-    Function *WF = GetWrapperFunction(M, F, Ty);
-
     if (!this->pthread_create) {
       initPthreadCreate(M);
     }
+
+    Function *F = I->getCalledFunction();
+    StructType *Ty = GetFuncStruct(F);
+    Function *WF = GetWrapperFunction(M, F, Ty);
 
     IRBuilder<> B(I);
     Value *ThreadPtr = B.CreateAlloca(Type::getInt64Ty(I->getContext()));
