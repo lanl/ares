@@ -28,6 +28,9 @@ namespace {
 
 class HLIRLowerPThread : public HLIRLower {
 private:
+  static const unsigned int ANSWER_OFFSET = 0;
+  static const unsigned int ARG_OFFSET = 0;
+
   /// Common Functions
   Function *pthread_create;
   Function *pthread_exit;
