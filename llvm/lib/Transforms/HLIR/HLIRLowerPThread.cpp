@@ -36,8 +36,15 @@ private:
   Function *pthread_exit;
   Function *pthread_join;
 
+  Function *sem_init;
+  Function *sem_wait;
+  Function *sem_post;
+  Function *sem_destroy;
+
   /// Common Type
   PointerType *PthreadAttrPtrTy;
+  Type *PThreadTy;
+  Type *SemTy;
 
   /// Maps a function to a wrapped version of that function which is
   /// able to be called by llvm.
@@ -52,16 +59,21 @@ private:
   /// TODO: Currently always makes the declaration.
   bool initPthreadCreate(Module *M) {
     /*
+      typedef long pthread_t;
+     */
+    this->PThreadTy = Type::getInt64Ty(M->getContext());
+
+    /*
       struct pthread_attr_t {
         long;
         char[48];
       }
     */
-    Type *StructComps[2] = {
+    Type *PThreadAttrs[2] = {
         Type::getInt64Ty(M->getContext()),
         ArrayType::get(Type::getInt8Ty(M->getContext()), 48)};
-    PthreadAttrPtrTy = PointerType::get(
-        StructType::create(StructComps, "union.pthread_attr_t"), 0);
+    this->PthreadAttrPtrTy = PointerType::get(
+        StructType::create(PThreadAttrs, "union.pthread_attr_t"), 0);
 
     /*
        void (*start)(void *args)
@@ -76,32 +88,78 @@ private:
       int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
       void *(*start_routine) (void *), void *arg);
     */
-    Type *PthreadArgsTy[4] = {Type::getInt64PtrTy(M->getContext()),
-                              PthreadAttrPtrTy, StartFTy,
-                              Type::getInt8PtrTy(M->getContext())};
-    FunctionType *CreateTy = FunctionType::get(
-        Type::getInt32Ty(M->getContext()), PthreadArgsTy, false);
-    this->pthread_create = Function::Create(CreateTy, Function::ExternalLinkage,
-                                            "pthread_create", M);
+    Type *PthreadArgsTy[4] = {PointerType::get(PThreadTy, 0), PthreadAttrPtrTy,
+                              StartFTy, Type::getInt8PtrTy(M->getContext())};
+    FunctionType *FTy = FunctionType::get(Type::getInt32Ty(M->getContext()),
+                                          PthreadArgsTy, false);
+    this->pthread_create =
+        Function::Create(FTy, Function::ExternalLinkage, "pthread_create", M);
 
     /*
      void pthread_exit(void *retval);
-   */
+    */
     FunctionType *ExitTy = FunctionType::get(Type::getVoidTy(M->getContext()),
                                              VoidPtrArgTy, false);
     this->pthread_exit =
-        Function::Create(ExitTy, Function::ExternalLinkage, "pthread_exit", M);
+        Function::Create(FTy, Function::ExternalLinkage, "pthread_exit", M);
 
     /*
       int pthread_join(pthread_t thread, void **retval);
     */
     Type *JoinArgsTy[2] = {
-        Type::getInt64Ty(M->getContext()),
-        PointerType::get(Type::getInt8PtrTy(M->getContext()), 0)};
-    FunctionType *JoinTy =
+        PThreadTy, PointerType::get(Type::getInt8PtrTy(M->getContext()), 0)};
+    FTy =
         FunctionType::get(Type::getInt32Ty(M->getContext()), JoinArgsTy, false);
     this->pthread_join =
-        Function::Create(JoinTy, Function::ExternalLinkage, "pthread_join", M);
+        Function::Create(FTy, Function::ExternalLinkage, "pthread_join", M);
+
+    /*
+      struct sem_t {
+        long;
+        char[24];
+      };
+    */
+    Type *SemComps[2] = {Type::getInt64Ty(M->getContext()),
+                         ArrayType::get(Type::getInt8Ty(M->getContext()), 24)};
+    this->SemTy = StructType::create(SemComps, "union.sem_t");
+
+    /*
+      int sem_init(sem_t*, int, unsigned int);
+    */
+    Type *SemInitArgsTy[3] = {PointerType::get(SemTy, 0),
+                              Type::getInt32Ty(M->getContext()),
+                              Type::getInt32Ty(M->getContext())};
+    FTy = FunctionType::get(Type::getInt32Ty(M->getContext()), SemInitArgsTy,
+                            false);
+    this->sem_init =
+        Function::Create(FTy, Function::ExternalLinkage, "sem_init", M);
+
+    /*
+      int sem_wait(sem_t*);
+    */
+    Type *SemWaitArgsTy[1] = {PointerType::get(SemTy, 0)};
+    FTy = FunctionType::get(Type::getInt32Ty(M->getContext()), SemWaitArgsTy,
+                            false);
+    this->sem_wait =
+        Function::Create(FTy, Function::ExternalLinkage, "sem_wait", M);
+
+    /*
+      int sem_post(sem_t*);
+    */
+    Type *SemPostArgsTy[1] = {PointerType::get(SemTy, 0)};
+    FTy = FunctionType::get(Type::getInt32Ty(M->getContext()), SemPostArgsTy,
+                            false);
+    this->sem_post =
+        Function::Create(FTy, Function::ExternalLinkage, "sem_post", M);
+
+    /*
+      int sem_destroy(sem_t*);
+     */
+    Type *SemDestroyArgTy[1] = {PointerType::get(SemTy, 0)};
+    FTy = FunctionType::get(Type::getInt32Ty(M->getContext()), SemDestroyArgTy,
+                            false);
+    this->sem_destroy =
+        Function::Create(FTy, Function::ExternalLinkage, "sem_destroy", M);
 
     return true;
   }
