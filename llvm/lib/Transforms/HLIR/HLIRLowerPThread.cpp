@@ -259,6 +259,7 @@ private:
     return UnpackedArgs;
   }
 
+  /// Signal parent that this thread has finished unpacking its arguments.
   void UnlockCopyMutex(IRBuilder<> B, Value *TaskPtr) {
     Value *GEPIndex[2] = {
         ConstantInt::get(Type::getInt64Ty(TaskPtr->getContext()), 0),
@@ -373,6 +374,8 @@ private:
     }
   }
 
+  /// Initializes a mutex, representing whether or not the task has finished
+  /// copying its arguments.
   void InitCopyMutex(IRBuilder<> B, Value *TaskPtr) {
     Value *GEPIndex[2] = {
         ConstantInt::get(Type::getInt64Ty(TaskPtr->getContext()), 0),
@@ -385,7 +388,9 @@ private:
     B.CreateCall(this->sem_init, SemInitArgs);
   }
 
-  void WaitForCopySignal(IRBuilder<> B, Value *TaskPtr) {
+  /// Waits for semaphore signal from task, signaling that the arguments have
+  // been copied, and that the process may now continue safely.
+  void WaitForCopyMutex(IRBuilder<> B, Value *TaskPtr) {
     Value *GEPIndex[2] = {
         ConstantInt::get(Type::getInt64Ty(TaskPtr->getContext()), 0),
         ConstantInt::get(Type::getInt32Ty(TaskPtr->getContext()), SEM_OFFSET)};
@@ -412,7 +417,7 @@ private:
 
     InitCopyMutex(B, ArgPtr);
     LaunchWrapper(I, WF, Ty, ArgPtr, ThreadPtr, B);
-    WaitForCopySignal(B, ArgPtr);
+    WaitForCopyMutex(B, ArgPtr);
     ForceFutures(I, ArgPtr, ThreadPtr);
 
     I->eraseFromParent();
