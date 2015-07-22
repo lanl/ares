@@ -259,14 +259,22 @@ private:
     return UnpackedArgs;
   }
 
+  void UnlockCopyMutex(IRBuilder<> B, Value *TaskPtr) {
+    Value *GEPIndex[2] = {
+        ConstantInt::get(Type::getInt64Ty(TaskPtr->getContext()), 0),
+        ConstantInt::get(Type::getInt32Ty(TaskPtr->getContext()), SEM_OFFSET)};
+
+    Value *SemInitArgs[1] = {B.CreateGEP(TaskPtr, GEPIndex)};
+    B.CreateCall(this->sem_post, SemInitArgs);
+  }
+
   /// Given a wrapper function and a function to wrap, will actually call the
   /// to-be-wrapped function. If needed, the result will be stored in the first
   /// element to the structure pointed to by RetPtr.
   ///
   /// Used almost exclusively by `GetWrapperFunction`.
-  void WrapFuncCall(Function *WF, Function *F, ArrayRef<Value *> UnpackedArgs,
+  void WrapFuncCall(IRBuilder<> B, Function *F, ArrayRef<Value *> UnpackedArgs,
                     Value *RetPtr) {
-    IRBuilder<> B(&WF->getEntryBlock());
     Value *RetVal = B.CreateCall(F, UnpackedArgs);
 
     // If need be, store the return.
@@ -296,8 +304,9 @@ private:
       std::vector<Value *> UnpackedArgs = UnpackArgs(WF, WrapTy, PackedArgs);
       // clang-format on
 
-      WrapFuncCall(WF, F, ArrayRef<Value *>(UnpackedArgs), PackedArgs);
       IRBuilder<> B(&WF->getEntryBlock());
+      UnlockCopyMutex(B, PackedArgs);
+      WrapFuncCall(B, F, ArrayRef<Value *>(UnpackedArgs), PackedArgs);
       B.CreateRet(
           ConstantPointerNull::get(Type::getInt8PtrTy(M->getContext())));
 
@@ -318,7 +327,8 @@ private:
     for (auto &Arg : I->arg_operands()) {
       Value *GEPIndex[2] = {
           ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
-          ConstantInt::get(Type::getInt32Ty(I->getContext()), ArgId + ARG_OFFSET)};
+          ConstantInt::get(Type::getInt32Ty(I->getContext()),
+                           ArgId + ARG_OFFSET)};
       B.CreateStore(Arg, B.CreateGEP(ArgPtr, GEPIndex));
       ArgId++;
     }
@@ -363,6 +373,27 @@ private:
     }
   }
 
+  void InitCopyMutex(IRBuilder<> B, Value *TaskPtr) {
+    Value *GEPIndex[2] = {
+        ConstantInt::get(Type::getInt64Ty(TaskPtr->getContext()), 0),
+        ConstantInt::get(Type::getInt32Ty(TaskPtr->getContext()), SEM_OFFSET)};
+
+    Value *SemInitArgs[3] = {
+        B.CreateGEP(TaskPtr, GEPIndex),
+        ConstantInt::get(Type::getInt32Ty(TaskPtr->getContext()), 0),
+        ConstantInt::get(Type::getInt32Ty(TaskPtr->getContext()), 0)};
+    B.CreateCall(this->sem_init, SemInitArgs);
+  }
+
+  void WaitForCopySignal(IRBuilder<> B, Value *TaskPtr) {
+    Value *GEPIndex[2] = {
+        ConstantInt::get(Type::getInt64Ty(TaskPtr->getContext()), 0),
+        ConstantInt::get(Type::getInt32Ty(TaskPtr->getContext()), SEM_OFFSET)};
+
+    Value *SemInitArgs[1] = {B.CreateGEP(TaskPtr, GEPIndex)};
+    B.CreateCall(this->sem_wait, SemInitArgs);
+  }
+
   /// Given a function call to lower, will build/lookup a wrapper function, and
   /// launch a pthread instead. Then this function will find all uses of the old
   /// return value, and replace them with futures.
@@ -379,7 +410,9 @@ private:
     Value *ThreadPtr = B.CreateAlloca(Type::getInt64Ty(I->getContext()));
     Value *ArgPtr = B.CreateAlloca(Ty);
 
+    InitCopyMutex(B, ArgPtr);
     LaunchWrapper(I, WF, Ty, ArgPtr, ThreadPtr, B);
+    WaitForCopySignal(B, ArgPtr);
     ForceFutures(I, ArgPtr, ThreadPtr);
 
     I->eraseFromParent();
