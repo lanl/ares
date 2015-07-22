@@ -1796,37 +1796,6 @@ NamedDecl *Sema::LazilyCreateBuiltin(IdentifierInfo *II, unsigned ID,
   return New;
 }
 
-/// \brief Filter out any previous declarations that the given declaration
-/// should not consider because they are not permitted to conflict, e.g.,
-/// because they come from hidden sub-modules and do not refer to the same
-/// entity.
-static void filterNonConflictingPreviousDecls(Sema &S,
-                                              NamedDecl *decl,
-                                              LookupResult &previous){
-  // This is only interesting when modules are enabled.
-  if ((!S.getLangOpts().Modules && !S.getLangOpts().ModulesLocalVisibility) ||
-      !S.getLangOpts().ModulesHideInternalLinkage)
-    return;
-
-  // Empty sets are uninteresting.
-  if (previous.empty())
-    return;
-
-  LookupResult::Filter filter = previous.makeFilter();
-  while (filter.hasNext()) {
-    NamedDecl *old = filter.next();
-
-    // Non-hidden declarations are never ignored.
-    if (S.isVisible(old))
-      continue;
-
-    if (!old->isExternallyVisible())
-      filter.erase();
-  }
-
-  filter.done();
-}
-
 /// Typedef declarations don't have linkage, but they still denote the same
 /// entity if their types are the same.
 /// FIXME: This is notionally doing the same thing as ASTReaderDecl's
@@ -4801,6 +4770,13 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
   LookupResult Previous(*this, NameInfo, LookupOrdinaryName,
                         ForRedeclaration);
 
+  // If we're hiding internal-linkage symbols in modules from redeclaration
+  // lookup, let name lookup know.
+  if ((getLangOpts().Modules || getLangOpts().ModulesLocalVisibility) &&
+      getLangOpts().ModulesHideInternalLinkage &&
+      D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_typedef)
+    Previous.setAllowHiddenInternal(false);
+
   // See if this is a redefinition of a variable in the same scope.
   if (!D.getCXXScopeSpec().isSet()) {
     bool IsLinkageLookup = false;
@@ -4884,6 +4860,17 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
   // of a function declaration (C++ only).
   if (getLangOpts().CPlusPlus)
     CheckExtraCXXDefaultArguments(D);
+
+  if (D.getDeclSpec().isConceptSpecified()) {
+    // C++ Concepts TS [dcl.spec.concept]p1: The concept specifier shall be
+    // applied only to the definition of a function template or variable
+    // template, declared in namespace scope
+    if (!DC->getRedeclContext()->isFileContext()) {
+      Diag(D.getIdentifierLoc(),
+           diag::err_concept_decls_may_only_appear_in_namespace_scope);
+      return nullptr;
+    }
+  }
 
   NamedDecl *New;
 
@@ -6500,9 +6487,6 @@ bool Sema::CheckVariableDeclaration(VarDecl *NewVD, LookupResult &Previous) {
       checkForConflictWithNonVisibleExternC(*this, NewVD, Previous))
     Previous.setShadowed();
 
-  // Filter out any non-conflicting previous declarations.
-  filterNonConflictingPreviousDecls(*this, NewVD, Previous);
-
   if (!Previous.empty()) {
     MergeVarDecl(NewVD, Previous);
     return true;
@@ -7230,6 +7214,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     bool isVirtual = D.getDeclSpec().isVirtualSpecified();
     bool isExplicit = D.getDeclSpec().isExplicitSpecified();
     bool isConstexpr = D.getDeclSpec().isConstexprSpecified();
+    bool isConcept = D.getDeclSpec().isConceptSpecified();
     isFriend = D.getDeclSpec().isFriendSpecified();
     if (isFriend && !isInline && D.isFunctionDefinition()) {
       // C++ [class.friend]p5
@@ -7444,6 +7429,20 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
       // destructors cannot be declared constexpr.
       if (isa<CXXDestructorDecl>(NewFD))
         Diag(D.getDeclSpec().getConstexprSpecLoc(), diag::err_constexpr_dtor);
+    }
+
+    if (isConcept) {
+      // C++ Concepts TS [dcl.spec.concept]p1: The concept specifier shall be
+      // applied only to the definition of a function template...
+      if (!D.isFunctionDefinition()) {
+        Diag(D.getDeclSpec().getConceptSpecLoc(),
+             diag::err_function_concept_not_defined);
+        NewFD->setInvalidDecl();
+      }
+
+      // C++ Concepts TS [dcl.spec.concept]p2: Every concept definition is
+      // implicity defined to be a constexpr declaration (implicitly inline)
+      NewFD->setImplicitlyInline();
     }
 
     // If __module_private__ was specified, mark the function accordingly.
@@ -8058,9 +8057,6 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   bool MergeTypeWithPrevious = !getLangOpts().CPlusPlus &&
                                !Previous.isShadowed();
 
-  // Filter out any non-conflicting previous declarations.
-  filterNonConflictingPreviousDecls(*this, NewFD, Previous);
-
   bool Redeclaration = false;
   NamedDecl *OldDecl = nullptr;
 
@@ -8114,7 +8110,6 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   // Check for a previous extern "C" declaration with this name.
   if (!Redeclaration &&
       checkForConflictWithNonVisibleExternC(*this, NewFD, Previous)) {
-    filterNonConflictingPreviousDecls(*this, NewFD, Previous);
     if (!Previous.empty()) {
       // This is an extern "C" declaration with the same name as a previous
       // declaration, and thus redeclares that entity...
