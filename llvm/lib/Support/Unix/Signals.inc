@@ -17,7 +17,6 @@
 #include "llvm/Support/Format.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FileUtilities.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/Program.h"
@@ -25,7 +24,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <string>
-#include <vector>
 #if HAVE_EXECINFO_H
 # include <execinfo.h>         // For backtrace().
 #endif
@@ -58,8 +56,6 @@ static ManagedStatic<SmartMutex<true> > SignalsMutex;
 static void (*InterruptFunction)() = nullptr;
 
 static ManagedStatic<std::vector<std::string>> FilesToRemove;
-static ManagedStatic<std::vector<std::pair<void (*)(void *), void *>>>
-    CallBacksToRun;
 
 // IntSigs - Signals that represent requested termination. There's no bug
 // or failure, or if there is, it's not our direct responsibility. For whatever
@@ -205,11 +201,7 @@ static RETSIGTYPE SignalHandler(int Sig) {
   }
 
   // Otherwise if it is a fault (like SEGV) run any handler.
-  if (CallBacksToRun.isConstructed()) {
-    auto &CallBacksToRunRef = *CallBacksToRun;
-    for (unsigned i = 0, e = CallBacksToRun->size(); i != e; ++i)
-      CallBacksToRunRef[i].first(CallBacksToRunRef[i].second);
-  }
+  llvm::sys::RunSignalHandlers();
 
 #ifdef __s390__
   // On S/390, certain signals are delivered with PSW Address pointing to
@@ -268,13 +260,6 @@ void llvm::sys::DontRemoveFileOnSignal(StringRef Filename) {
   std::vector<std::string>::iterator I = FilesToRemove->end();
   if (RI != FilesToRemove->rend())
     I = FilesToRemove->erase(RI.base()-1);
-
-  // We need to call c_str() on every element which would have been moved by
-  // the erase. These elements, in a C++98 implementation where c_str()
-  // requires a reallocation on the first call may have had the call to c_str()
-  // made on insertion become invalid by being copied down an element.
-  for (std::vector<std::string>::iterator E = FilesToRemove->end(); I != E; ++I)
-    I->c_str();
 }
 
 /// AddSignalHandler - Add a function to be called when a signal is delivered
