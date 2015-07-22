@@ -101,8 +101,8 @@ private:
     /*
      void pthread_exit(void *retval);
     */
-    FunctionType *ExitTy = FunctionType::get(Type::getVoidTy(M->getContext()),
-                                             VoidPtrArgTy, false);
+    FTy = FunctionType::get(Type::getVoidTy(M->getContext()), VoidPtrArgTy,
+                            false);
     this->pthread_exit =
         Function::Create(FTy, Function::ExternalLinkage, "pthread_exit", M);
 
