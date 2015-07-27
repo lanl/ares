@@ -71,6 +71,7 @@ check_library_exists(stdc++ __cxa_throw "" COMPILER_RT_HAS_LIBSTDCXX)
 # Linker flags.
 if(ANDROID)
   check_linker_flag("-Wl,-z,global" COMPILER_RT_HAS_Z_GLOBAL)
+  check_library_exists(log __android_log_write "" COMPILER_RT_HAS_LIBLOG)
 endif()
 
 # Architectures.
@@ -120,7 +121,8 @@ macro(test_target_arch arch def)
   endif()
   if(${CAN_TARGET_${arch}})
     list(APPEND COMPILER_RT_SUPPORTED_ARCH ${arch})
-  elseif("${COMPILER_RT_TEST_TARGET_ARCH}" MATCHES "${arch}")
+  elseif("${COMPILER_RT_TEST_TARGET_ARCH}" MATCHES "${arch}" AND
+         COMPILER_RT_HAS_EXPLICIT_TEST_TARGET_TRIPLE)
     # Bail out if we cannot target the architecture we plan to test.
     message(FATAL_ERROR "Cannot compile for ${arch}:\n${TARGET_${arch}_OUTPUT}")
   endif()
@@ -222,7 +224,7 @@ message(STATUS "Compiler-RT supported architectures: ${COMPILER_RT_SUPPORTED_ARC
 
 # Takes ${ARGN} and puts only supported architectures in @out_var list.
 function(filter_available_targets out_var)
-  set(archs)
+  set(archs ${${out_var}})
   foreach(arch ${ARGN})
     list(FIND COMPILER_RT_SUPPORTED_ARCH ${arch} ARCH_INDEX)
     if(NOT (ARCH_INDEX EQUAL -1) AND CAN_TARGET_${arch})
@@ -253,6 +255,9 @@ filter_available_targets(UBSAN_COMMON_SUPPORTED_ARCH
   ${SANITIZER_COMMON_SUPPORTED_ARCH})
 filter_available_targets(ASAN_SUPPORTED_ARCH
   x86_64 i386 i686 powerpc64 powerpc64le arm mips mipsel mips64 mips64el)
+if(ANDROID)
+  filter_available_targets(ASAN_SUPPORTED_ARCH aarch64)
+endif()
 filter_available_targets(DFSAN_SUPPORTED_ARCH x86_64 mips64 mips64el)
 filter_available_targets(LSAN_SUPPORTED_ARCH x86_64 mips64 mips64el)
 filter_available_targets(MSAN_SUPPORTED_ARCH x86_64 mips64 mips64el)
