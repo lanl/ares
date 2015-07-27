@@ -72,7 +72,7 @@ if(ANDROID)
 endif()
 
 set(SANITIZER_TEST_LINK_LIBS)
-append_list_if(ANDROID log SANITIZER_TEST_LINK_LIBS)
+append_list_if(COMPILER_RT_HAS_LIBLOG log SANITIZER_TEST_LINK_LIBS)
 # NDK r10 requires -latomic almost always.
 append_list_if(ANDROID atomic SANITIZER_TEST_LINK_LIBS)
 
@@ -172,7 +172,8 @@ if(COMPILER_RT_CAN_EXECUTE_TESTS AND NOT ANDROID)
   else()
     if(CAN_TARGET_x86_64)
       add_sanitizer_common_lib("RTSanitizerCommon.test.nolibc.x86_64"
-                               $<TARGET_OBJECTS:RTSanitizerCommon.x86_64>)
+                               $<TARGET_OBJECTS:RTSanitizerCommon.x86_64>
+                               $<TARGET_OBJECTS:RTSanitizerCommonNoLibc.x86_64>)
     endif()
     foreach(arch ${SANITIZER_UNITTEST_SUPPORTED_ARCH})
       add_sanitizer_common_lib("RTSanitizerCommon.test.${arch}"
