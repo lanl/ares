@@ -99,3 +99,10 @@ template <typename T> void someFunctionTemplateAllUnusedParams(T b, T e) {}
 // CHECK-MESSAGES: :[[@LINE-1]]:66: warning
 // CHECK-MESSAGES: :[[@LINE-2]]:71: warning
 // CHECK-FIXES: {{^}}template <typename T> void someFunctionTemplateAllUnusedParams(T  /*b*/, T  /*e*/) {}
+
+static void dontGetConfusedByParametersInFunctionTypes() { void (*F)(int i); }
+
+template <typename T> class Function {};
+static Function<void(int, int i)> dontGetConfusedByFunctionReturnTypes() {
+  return Function<void(int, int)>();
+}
