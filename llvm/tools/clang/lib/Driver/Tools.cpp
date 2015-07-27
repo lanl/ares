@@ -919,11 +919,6 @@ void Clang::AddAArch64TargetArgs(const ArgList &Args,
     else
       CmdArgs.push_back("-aarch64-global-merge=true");
   }
-
-  if (Args.hasArg(options::OPT_ffixed_x18)) {
-    CmdArgs.push_back("-backend-option");
-    CmdArgs.push_back("-aarch64-reserve-x18");
-  }
 }
 
 // Get CPU and ABI names. They are not independent
@@ -1527,7 +1522,7 @@ static std::string getCPUName(const ArgList &Args, const llvm::Triple &T) {
     return getX86TargetCPU(Args, T);
 
   case llvm::Triple::hexagon:
-    return "hexagon" + toolchains::Hexagon_TC::GetTargetCPU(Args).str();
+    return "hexagon" + toolchains::HexagonToolChain::GetTargetCPU(Args).str();
 
   case llvm::Triple::systemz:
     return getSystemZTargetCPU(Args);
@@ -1803,7 +1798,8 @@ void Clang::AddHexagonTargetArgs(const ArgList &Args,
   CmdArgs.push_back("-mqdsp6-compat");
   CmdArgs.push_back("-Wreturn-type");
 
-  if (const char *v = toolchains::Hexagon_TC::GetSmallDataThreshold(Args)) {
+  if (const char *v =
+          toolchains::HexagonToolChain::GetSmallDataThreshold(Args)) {
     std::string SmallDataThreshold = "-hexagon-small-data-threshold=";
     SmallDataThreshold += v;
     CmdArgs.push_back("-mllvm");
@@ -1971,6 +1967,9 @@ static void getAArch64TargetFeatures(const Driver &D, const ArgList &Args,
     else
       Features.push_back("-crc");
   }
+
+  if (Args.hasArg(options::OPT_ffixed_x18))
+    Features.push_back("+reserve-x18");
 }
 
 static void getTargetFeatures(const Driver &D, const llvm::Triple &Triple,
@@ -5551,7 +5550,7 @@ void hexagon::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
   ArgStringList CmdArgs;
 
   std::string MarchString = "-march=";
-  MarchString += toolchains::Hexagon_TC::GetTargetCPU(Args);
+  MarchString += toolchains::HexagonToolChain::GetTargetCPU(Args);
   CmdArgs.push_back(Args.MakeArgString(MarchString));
 
   RenderExtraToolArgs(JA, CmdArgs);
@@ -5564,7 +5563,7 @@ void hexagon::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fsyntax-only");
   }
 
-  if (const char *v = toolchains::Hexagon_TC::GetSmallDataThreshold(Args))
+  if (const char *v = toolchains::HexagonToolChain::GetSmallDataThreshold(Args))
     CmdArgs.push_back(Args.MakeArgString(std::string("-G") + v));
 
   Args.AddAllArgValues(CmdArgs, options::OPT_Wa_COMMA, options::OPT_Xassembler);
@@ -5608,13 +5607,12 @@ void hexagon::Linker::RenderExtraToolArgs(const JobAction &JA,
   // The types are (hopefully) good enough.
 }
 
-static void constructHexagonLinkArgs(Compilation &C, const JobAction &JA,
-                                     const toolchains::Hexagon_TC &ToolChain,
-                                     const InputInfo &Output,
-                                     const InputInfoList &Inputs,
-                                     const ArgList &Args,
-                                     ArgStringList &CmdArgs,
-                                     const char *LinkingOutput) {
+static void
+constructHexagonLinkArgs(Compilation &C, const JobAction &JA,
+                         const toolchains::HexagonToolChain &ToolChain,
+                         const InputInfo &Output, const InputInfoList &Inputs,
+                         const ArgList &Args, ArgStringList &CmdArgs,
+                         const char *LinkingOutput) {
 
   const Driver &D = ToolChain.getDriver();
 
@@ -5646,7 +5644,7 @@ static void constructHexagonLinkArgs(Compilation &C, const JobAction &JA,
   for (const auto &Opt : ToolChain.ExtraOpts)
     CmdArgs.push_back(Opt.c_str());
 
-  std::string MarchString = toolchains::Hexagon_TC::GetTargetCPU(Args);
+  std::string MarchString = toolchains::HexagonToolChain::GetTargetCPU(Args);
   CmdArgs.push_back(Args.MakeArgString("-m" + MarchString));
 
   if (buildingLib) {
@@ -5661,9 +5659,10 @@ static void constructHexagonLinkArgs(Compilation &C, const JobAction &JA,
   if (buildPIE && !buildingLib)
     CmdArgs.push_back("-pie");
 
-  if (const char *v = toolchains::Hexagon_TC::GetSmallDataThreshold(Args)) {
+  if (const char *v =
+          toolchains::HexagonToolChain::GetSmallDataThreshold(Args)) {
     CmdArgs.push_back(Args.MakeArgString(std::string("-G") + v));
-    useG0 = toolchains::Hexagon_TC::UsesG0(v);
+    useG0 = toolchains::HexagonToolChain::UsesG0(v);
   }
 
   //----------------------------------------------------------------------------
@@ -5676,7 +5675,7 @@ static void constructHexagonLinkArgs(Compilation &C, const JobAction &JA,
   const std::string G0Suffix = "/G0";
   const std::string MarchG0Suffix = MarchSuffix + G0Suffix;
   const std::string RootDir =
-      toolchains::Hexagon_TC::GetGnuDir(D.InstalledDir, Args) + "/";
+      toolchains::HexagonToolChain::GetGnuDir(D.InstalledDir, Args) + "/";
   const std::string StartFilesDir =
       RootDir + "hexagon/lib" + (useG0 ? MarchG0Suffix : MarchSuffix);
 
@@ -5766,8 +5765,8 @@ void hexagon::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                    const ArgList &Args,
                                    const char *LinkingOutput) const {
 
-  const toolchains::Hexagon_TC &ToolChain =
-      static_cast<const toolchains::Hexagon_TC &>(getToolChain());
+  const toolchains::HexagonToolChain &ToolChain =
+      static_cast<const toolchains::HexagonToolChain &>(getToolChain());
 
   ArgStringList CmdArgs;
   constructHexagonLinkArgs(C, JA, ToolChain, Output, Inputs, Args, CmdArgs,
@@ -7889,13 +7888,15 @@ static std::string getLinuxDynamicLinker(const ArgList &Args,
   else if (Arch == llvm::Triple::aarch64_be)
     return "/lib/ld-linux-aarch64_be.so.1";
   else if (Arch == llvm::Triple::arm || Arch == llvm::Triple::thumb) {
-    if (ToolChain.getTriple().getEnvironment() == llvm::Triple::GNUEABIHF)
+    if (ToolChain.getTriple().getEnvironment() == llvm::Triple::GNUEABIHF ||
+        tools::arm::getARMFloatABI(ToolChain.getDriver(), Args, ToolChain.getTriple()) == "hard")
       return "/lib/ld-linux-armhf.so.3";
     else
       return "/lib/ld-linux.so.3";
   } else if (Arch == llvm::Triple::armeb || Arch == llvm::Triple::thumbeb) {
     // TODO: check which dynamic linker name.
-    if (ToolChain.getTriple().getEnvironment() == llvm::Triple::GNUEABIHF)
+    if (ToolChain.getTriple().getEnvironment() == llvm::Triple::GNUEABIHF ||
+        tools::arm::getARMFloatABI(ToolChain.getDriver(), Args, ToolChain.getTriple()) == "hard")
       return "/lib/ld-linux-armhf.so.3";
     else
       return "/lib/ld-linux.so.3";
@@ -8228,8 +8229,8 @@ void nacltools::AssemblerARM::ConstructJob(Compilation &C, const JobAction &JA,
                                            const InputInfoList &Inputs,
                                            const ArgList &Args,
                                            const char *LinkingOutput) const {
-  const toolchains::NaCl_TC &ToolChain =
-      static_cast<const toolchains::NaCl_TC &>(getToolChain());
+  const toolchains::NaClToolChain &ToolChain =
+      static_cast<const toolchains::NaClToolChain &>(getToolChain());
   InputInfo NaClMacros(ToolChain.GetNaClArmMacrosPath(), types::TY_PP_Asm,
                        "nacl-arm-macros.s");
   InputInfoList NewInputs;
@@ -8249,8 +8250,8 @@ void nacltools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                      const ArgList &Args,
                                      const char *LinkingOutput) const {
 
-  const toolchains::NaCl_TC &ToolChain =
-      static_cast<const toolchains::NaCl_TC &>(getToolChain());
+  const toolchains::NaClToolChain &ToolChain =
+      static_cast<const toolchains::NaClToolChain &>(getToolChain());
   const Driver &D = ToolChain.getDriver();
   const llvm::Triple::ArchType Arch = ToolChain.getArch();
   const bool IsStatic =
@@ -8275,8 +8276,8 @@ void nacltools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasArg(options::OPT_s))
     CmdArgs.push_back("-s");
 
-  // NaCl_TC doesn't have ExtraOpts like Linux; the only relevant flag from
-  // there is --build-id, which we do want.
+  // NaClToolChain doesn't have ExtraOpts like Linux; the only relevant flag
+  // from there is --build-id, which we do want.
   CmdArgs.push_back("--build-id");
 
   if (!IsStatic)
@@ -8830,17 +8831,31 @@ std::unique_ptr<Command> visualstudio::Compiler::GetCommand(
   Args.AddAllArgs(CmdArgs, options::OPT_I);
 
   // Optimization level.
+  if (Arg *A = Args.getLastArg(options::OPT_fbuiltin, options::OPT_fno_builtin))
+    CmdArgs.push_back(A->getOption().getID() == options::OPT_fbuiltin ? "/Oi"
+                                                                      : "/Oi-");
   if (Arg *A = Args.getLastArg(options::OPT_O, options::OPT_O0)) {
     if (A->getOption().getID() == options::OPT_O0) {
       CmdArgs.push_back("/Od");
     } else {
+      CmdArgs.push_back("/Og");
+
       StringRef OptLevel = A->getValue();
-      if (OptLevel == "1" || OptLevel == "2" || OptLevel == "s")
-        A->render(Args, CmdArgs);
-      else if (OptLevel == "3")
-        CmdArgs.push_back("/Ox");
+      if (OptLevel == "s" || OptLevel == "z")
+        CmdArgs.push_back("/Os");
+      else
+        CmdArgs.push_back("/Ot");
+
+      CmdArgs.push_back("/Ob2");
     }
   }
+  if (Arg *A = Args.getLastArg(options::OPT_fomit_frame_pointer,
+                               options::OPT_fno_omit_frame_pointer))
+    CmdArgs.push_back(A->getOption().getID() == options::OPT_fomit_frame_pointer
+                          ? "/Oy"
+                          : "/Oy-");
+  if (!Args.hasArg(options::OPT_fwritable_strings))
+    CmdArgs.push_back("/GF");
 
   // Flags for which clang-cl has an alias.
   // FIXME: How can we ensure this stays in sync with relevant clang-cl options?
@@ -8871,6 +8886,7 @@ std::unique_ptr<Command> visualstudio::Compiler::GetCommand(
   Args.AddAllArgs(CmdArgs, options::OPT__SLASH_LD);
   Args.AddAllArgs(CmdArgs, options::OPT__SLASH_LDd);
   Args.AddAllArgs(CmdArgs, options::OPT__SLASH_EH);
+  Args.AddAllArgs(CmdArgs, options::OPT__SLASH_Zl);
 
   // The order of these flags is relevant, so pick the last one.
   if (Arg *A = Args.getLastArg(options::OPT__SLASH_MD, options::OPT__SLASH_MDd,
