@@ -53,6 +53,10 @@ private:
   std::map<Function *, Function *> FuncToWrapFunc;
   std::map<Function *, StructType *> FuncToStruct;
 
+  /// Maps the original value to its future equivalent, so that futures
+  /// can be forced.
+  std::map<Instruction *, Value *> OrigToFuture;
+
   bool InitLower(Module &M) { return false; }
 
   /// Make a declaration of `pthread_create` if necessary. Returns whether or
@@ -336,53 +340,13 @@ private:
 
     Value *GEPIndex[2] = {
         ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
-        ConstantInt::get(Type::getInt32Ty(I->getContext()),
-                         TID_OFFSET)};
+        ConstantInt::get(Type::getInt32Ty(I->getContext()), TID_OFFSET)};
 
     Value *PThreadArgs[4] = {
         B.CreateGEP(ArgPtr, GEPIndex),
         ConstantPointerNull::get(PthreadAttrPtrTy), WF,
         B.CreateBitCast(ArgPtr, Type::getInt8PtrTy(I->getContext()))};
     B.CreateCall(this->pthread_create, PThreadArgs);
-  }
-
-  /// Given a call that has just been wrapped into a launch, will find
-  /// THE FIRST USE, and put a force before it, and replace all further uses
-  /// with this forced value.
-  ///
-  /// This is not even a little correct. It essentially is assuming the first
-  /// use will be in the defining block. This is an assumption that was made
-  /// for prototype reasons. TODO: Generalize this technique.
-  void ForceFutures(CallInst *I, Value *ArgPtr) {
-    for (User *U : I->users()) {
-      if (Instruction *Inst = dyn_cast<Instruction>(U)) {
-        // This builder inserts before the first use.
-        IRBuilder<> ForceRet(Inst);
-
-        Value *GEPIndex[2] = {
-            ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
-            ConstantInt::get(Type::getInt32Ty(I->getContext()), TID_OFFSET)};
-
-        // FIRST, wait for the thread
-        Value *JoinArgs[2] = {
-            ForceRet.CreateLoad(ForceRet.CreateGEP(ArgPtr, GEPIndex)),
-            ConstantPointerNull::get(
-                PointerType::get(Type::getInt8PtrTy(I->getContext()), 0))};
-        ForceRet.CreateCall(this->pthread_join, JoinArgs);
-
-        // NEXT: get the ret out of the struct
-        // (I know the return is there because there was a use.)
-        GEPIndex[1] =
-            ConstantInt::get(Type::getInt32Ty(I->getContext()), RET_OFFSET);
-
-        Value *RetVal =
-            ForceRet.CreateLoad(ForceRet.CreateGEP(ArgPtr, GEPIndex));
-
-        // LAST: Replace all uses with the true return value
-        I->replaceAllUsesWith(RetVal);
-        break;
-      }
-    }
   }
 
   /// Initializes a mutex, representing whether or not the task has finished
@@ -429,10 +393,60 @@ private:
     InitCopyMutex(B, ArgPtr);
     LaunchWrapper(I, WF, Ty, ArgPtr, B);
     WaitForCopyMutex(B, ArgPtr);
-    ForceFutures(I, ArgPtr);
 
-    I->eraseFromParent();
+    if (I->getNumUses() > 0) {
+      this->OrigToFuture[I] = ArgPtr;
+    }
+
     return true;
+  }
+
+  /// Forces F before instruction I, and replaces the use of O in I with the
+  /// new forced value. Will return the new forced value so that it may replace
+  /// O in other places.
+  Value *AddForceAtUse(Value *O, Value *F, Instruction *I) {
+    IRBuilder<> B(I);
+
+    Value *GEPIndex[2] = {
+        ConstantInt::get(Type::getInt64Ty(I->getContext()), 0),
+        ConstantInt::get(Type::getInt32Ty(I->getContext()), TID_OFFSET)};
+    Value *JoinArgs[2] = {B.CreateLoad(B.CreateGEP(F, GEPIndex)),
+                          ConstantPointerNull::get(PointerType::get(
+                              Type::getInt8PtrTy(I->getContext()), 0))};
+    B.CreateCall(this->pthread_join, JoinArgs);
+
+    GEPIndex[1] =
+        ConstantInt::get(Type::getInt32Ty(I->getContext()), RET_OFFSET);
+    Value *RetVal = B.CreateLoad(B.CreateGEP(F, GEPIndex));
+
+    I->replaceUsesOfWith(O, RetVal);
+    return RetVal;
+  }
+
+  bool ForceFutures(Module *M) {
+    bool Changed = false;
+
+    // For now I'm still ignoring phi nodes. This is just an attempt to
+    // restructure.
+    for (auto &Future : this->OrigToFuture) {
+      std::vector<Instruction *> Uses;
+
+      for (User *U : Future.first->users()) {
+        if (Instruction *Inst = dyn_cast<Instruction>(U)) {
+          Uses.push_back(Inst);
+        }
+      }
+
+      for (auto Inst : Uses) {
+        AddForceAtUse(Future.first, Future.second, Inst);
+        Changed |= true;
+      }
+
+      Future.first->dump();
+      Future.first->eraseFromParent();
+    }
+
+    return Changed;
   }
 
 public:

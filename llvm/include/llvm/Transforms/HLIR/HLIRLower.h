@@ -47,6 +47,12 @@ private:
   /// @return Was the module changed?
   virtual bool LowerLaunchCall(Module *M, CallInst *I) = 0;
 
+  /// Using data gathered in `LowerLaunchcall`, finds all uses of the original
+  /// launch calls, and deals with them properly to use the new "Future value".
+  ///
+  /// @return Was the module changed?
+  virtual bool ForceFutures(Module *M) = 0;
+
 public:
   // static char ID;
   HLIRLower(char ID) : ModulePass(ID){}; // : ModulePass(ID);

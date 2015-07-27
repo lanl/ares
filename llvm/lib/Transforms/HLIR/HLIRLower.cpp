@@ -43,5 +43,7 @@ bool HLIRLower::runOnModule(Module &M) {
     Changed |= LowerLaunchCall(&M, cast<CallInst>(I));
   }
 
+  Changed |= ForceFutures(&M);
+
   return Changed;
 }
