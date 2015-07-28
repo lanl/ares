@@ -1,15 +1,15 @@
+/**
+ * Compile with:
+ * ```
+ * clang -S -emit-llvm copySemantics.c
+ * ```
+ * Add `!hlir.task !2` to every call to `ack`.
+ * Append `!2 = !{!"launch"}` to the end of the file.
+ */
 #include <stdio.h>
 #include <unistd.h>
 
-int ack(int m, int n) {
-  if(m == 0) {
-    return n + 1;
-  } else if(n == 0) {
-    return ack(m - 1, 1);
-  } else {
-    return ack(m - 1, ack(m, n - 1));
-  }
-}
+#include "ack.h"
 
 void print_msg(int i) {
   // Do some busy computation...
@@ -17,8 +17,7 @@ void print_msg(int i) {
   printf("I am iteration %i, and got %i!\n", i, x);
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
   int i;
 
   for (i = 0; i < 10; i++) {
