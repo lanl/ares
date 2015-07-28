@@ -8,6 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include <list>
+#include <vector>
 
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Instructions.h"
@@ -17,6 +18,43 @@
 #include "llvm/Transforms/HLIR/HLIRLower.h"
 
 using namespace llvm;
+
+std::set<PHINode *> HLIRLower::getFutureUnions(std::set<Value *> &FOrig) {
+  bool Fixed = true;
+  std::set<PHINode *> Unions;
+
+  // Look for any phi uses, add them to the list
+  for (auto V : FOrig) {
+    for (User *U : V->users()) {
+      if (PHINode *P = dyn_cast<PHINode>(U)) {
+        Fixed = false;
+        Unions.insert(P);
+      }
+    }
+  }
+
+  // Fixed point on adding phi uses from other phi uses
+  // TODO: PLEASE clean this up...
+  while (!Fixed) {
+    Fixed = true;
+    for (auto V : Unions) {
+      for (User *U : V->users()) {
+        if (PHINode *P = dyn_cast<PHINode>(U)) {
+          if (Unions.find(P) == Unions.end()) {
+            Fixed = false;
+            Unions.insert(P);
+          }
+        }
+      }
+    }
+  }
+
+  return Unions;
+}
+
+// std::vector<Instruction *> HLIRLower::getAllForcePoints() {
+
+// }
 
 bool HLIRLower::runOnModule(Module &M) {
   bool Changed = false;

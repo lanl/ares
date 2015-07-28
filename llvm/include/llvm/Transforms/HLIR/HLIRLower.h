@@ -26,6 +26,8 @@
 //===----------------------------------------------------------------------===//
 #pragma once
 
+#include <set>
+
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
@@ -33,6 +35,17 @@
 namespace llvm {
 
 class HLIRLower : public ModulePass {
+protected:
+  /// Given a set of all original values which will be used as futures,
+  /// this function will return a new set of all Phis that have one of
+  /// these values as an argument, or which have another PHI in the set
+  /// as an argument. The idea is that these phi values will need to be
+  /// treated as futures as well (though likely as special cases).
+  ///
+  /// @param FOrig Values which need to be converted to future forces.
+  /// @return All phis which inherit from such values.
+  static std::set<PHINode *> getFutureUnions(std::set<Value *> &FOrig);
+
 private:
   /// Gives implementing class a chance to initialize anything it may need
   /// to.
