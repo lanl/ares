@@ -77,7 +77,7 @@ class SparcAsmParser : public MCTargetAsmParser {
   bool parseDirectiveWord(unsigned Size, SMLoc L);
 
   bool is64Bit() const {
-    return STI.getTargetTriple().getArchName().startswith("sparcv9");
+    return STI.getTargetTriple().getArch() == Triple::sparcv9;
   }
 
   void expandSET(MCInst &Inst, SMLoc IDLoc,
@@ -87,7 +87,7 @@ public:
   SparcAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
                 const MCInstrInfo &MII,
                 const MCTargetOptions &Options)
-      : MCTargetAsmParser(), STI(sti), Parser(parser) {
+      : MCTargetAsmParser(Options), STI(sti), Parser(parser) {
     // Initialize the set of available features.
     setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
   }

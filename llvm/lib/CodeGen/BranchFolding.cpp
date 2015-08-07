@@ -151,9 +151,13 @@ bool BranchFolder::OptimizeImpDefsBlock(MachineBasicBlock *MBB) {
     if (!I->isImplicitDef())
       break;
     unsigned Reg = I->getOperand(0).getReg();
-    for (MCSubRegIterator SubRegs(Reg, TRI, /*IncludeSelf=*/true);
-         SubRegs.isValid(); ++SubRegs)
-      ImpDefRegs.insert(*SubRegs);
+    if (TargetRegisterInfo::isPhysicalRegister(Reg)) {
+      for (MCSubRegIterator SubRegs(Reg, TRI, /*IncludeSelf=*/true);
+           SubRegs.isValid(); ++SubRegs)
+        ImpDefRegs.insert(*SubRegs);
+    } else {
+      ImpDefRegs.insert(Reg);
+    }
     ++I;
   }
   if (ImpDefRegs.empty())
@@ -602,6 +606,7 @@ static bool ProfitableToMerge(MachineBasicBlock *MBB1,
   // instructions that would be deleted in the merge.
   MachineFunction *MF = MBB1->getParent();
   if (EffectiveTailLen >= 2 &&
+      // FIXME: Use Function::optForSize().
       MF->getFunction()->hasFnAttribute(Attribute::OptimizeForSize) &&
       (I1 == MBB1->begin() || I2 == MBB2->begin()))
     return true;

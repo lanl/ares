@@ -73,6 +73,37 @@ template <> struct ScalarTraits<FlowStringValue> {
   static bool mustQuote(StringRef Scalar) { return needsQuotes(Scalar); }
 };
 
+/// A wrapper around unsigned which contains a source range that's being set
+/// during parsing.
+struct UnsignedValue {
+  unsigned Value;
+  SMRange SourceRange;
+
+  UnsignedValue() : Value(0) {}
+  UnsignedValue(unsigned Value) : Value(Value) {}
+
+  bool operator==(const UnsignedValue &Other) const {
+    return Value == Other.Value;
+  }
+};
+
+template <> struct ScalarTraits<UnsignedValue> {
+  static void output(const UnsignedValue &Value, void *Ctx, raw_ostream &OS) {
+    return ScalarTraits<unsigned>::output(Value.Value, Ctx, OS);
+  }
+
+  static StringRef input(StringRef Scalar, void *Ctx, UnsignedValue &Value) {
+    if (const auto *Node =
+            reinterpret_cast<yaml::Input *>(Ctx)->getCurrentNode())
+      Value.SourceRange = Node->getSourceRange();
+    return ScalarTraits<unsigned>::input(Scalar, Ctx, Value.Value);
+  }
+
+  static bool mustQuote(StringRef Scalar) {
+    return ScalarTraits<unsigned>::mustQuote(Scalar);
+  }
+};
+
 template <> struct ScalarEnumerationTraits<MachineJumpTableInfo::JTEntryKind> {
   static void enumeration(yaml::IO &IO,
                           MachineJumpTableInfo::JTEntryKind &EntryKind) {
@@ -94,12 +125,13 @@ template <> struct ScalarEnumerationTraits<MachineJumpTableInfo::JTEntryKind> {
 
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::yaml::StringValue)
 LLVM_YAML_IS_FLOW_SEQUENCE_VECTOR(llvm::yaml::FlowStringValue)
+LLVM_YAML_IS_FLOW_SEQUENCE_VECTOR(llvm::yaml::UnsignedValue)
 
 namespace llvm {
 namespace yaml {
 
 struct VirtualRegisterDefinition {
-  unsigned ID;
+  UnsignedValue ID;
   StringValue Class;
   StringValue PreferredRegister;
   // TODO: Serialize the target specific register hints.
@@ -116,14 +148,31 @@ template <> struct MappingTraits<VirtualRegisterDefinition> {
   static const bool flow = true;
 };
 
+struct MachineFunctionLiveIn {
+  StringValue Register;
+  StringValue VirtualRegister;
+};
+
+template <> struct MappingTraits<MachineFunctionLiveIn> {
+  static void mapping(IO &YamlIO, MachineFunctionLiveIn &LiveIn) {
+    YamlIO.mapRequired("reg", LiveIn.Register);
+    YamlIO.mapOptional(
+        "virtual-reg", LiveIn.VirtualRegister,
+        StringValue()); // Don't print the virtual register when it's empty.
+  }
+
+  static const bool flow = true;
+};
+
 struct MachineBasicBlock {
   unsigned ID;
   StringValue Name;
+  StringValue IRBlock;
   unsigned Alignment = 0;
   bool IsLandingPad = false;
   bool AddressTaken = false;
-  // TODO: Serialize the successor weights.
   std::vector<FlowStringValue> Successors;
+  std::vector<UnsignedValue> SuccessorWeights;
   std::vector<FlowStringValue> LiveIns;
   std::vector<StringValue> Instructions;
 };
@@ -133,10 +182,13 @@ template <> struct MappingTraits<MachineBasicBlock> {
     YamlIO.mapRequired("id", MBB.ID);
     YamlIO.mapOptional("name", MBB.Name,
                        StringValue()); // Don't print out an empty name.
+    YamlIO.mapOptional("ir-block", MBB.IRBlock,
+                       StringValue()); // Don't print out an empty BB reference.
     YamlIO.mapOptional("alignment", MBB.Alignment);
     YamlIO.mapOptional("isLandingPad", MBB.IsLandingPad);
     YamlIO.mapOptional("addressTaken", MBB.AddressTaken);
     YamlIO.mapOptional("successors", MBB.Successors);
+    YamlIO.mapOptional("weights", MBB.SuccessorWeights);
     YamlIO.mapOptional("liveins", MBB.LiveIns);
     YamlIO.mapOptional("instructions", MBB.Instructions);
   }
@@ -233,7 +285,7 @@ template <> struct MappingTraits<FixedMachineStackObject> {
 };
 
 struct MachineConstantPoolValue {
-  unsigned ID;
+  UnsignedValue ID;
   StringValue Value;
   unsigned Alignment = 0;
 };
@@ -248,7 +300,7 @@ template <> struct MappingTraits<MachineConstantPoolValue> {
 
 struct MachineJumpTable {
   struct Entry {
-    unsigned ID;
+    UnsignedValue ID;
     std::vector<FlowStringValue> Blocks;
   };
 
@@ -266,6 +318,7 @@ template <> struct MappingTraits<MachineJumpTable::Entry> {
 } // end namespace yaml
 } // end namespace llvm
 
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::yaml::MachineFunctionLiveIn)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::yaml::VirtualRegisterDefinition)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::yaml::MachineBasicBlock)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::yaml::MachineStackObject)
@@ -306,7 +359,8 @@ struct MachineFrameInfo {
   bool HasOpaqueSPAdjustment = false;
   bool HasVAStart = false;
   bool HasMustTailInVarArgFunc = false;
-  // TODO: Serialize save and restore MBB references.
+  StringValue SavePoint;
+  StringValue RestorePoint;
 };
 
 template <> struct MappingTraits<MachineFrameInfo> {
@@ -324,6 +378,10 @@ template <> struct MappingTraits<MachineFrameInfo> {
     YamlIO.mapOptional("hasOpaqueSPAdjustment", MFI.HasOpaqueSPAdjustment);
     YamlIO.mapOptional("hasVAStart", MFI.HasVAStart);
     YamlIO.mapOptional("hasMustTailInVarArgFunc", MFI.HasMustTailInVarArgFunc);
+    YamlIO.mapOptional("savePoint", MFI.SavePoint,
+                       StringValue()); // Don't print it out when it's empty.
+    YamlIO.mapOptional("restorePoint", MFI.RestorePoint,
+                       StringValue()); // Don't print it out when it's empty.
   }
 };
 
@@ -337,8 +395,8 @@ struct MachineFunction {
   bool TracksRegLiveness = false;
   bool TracksSubRegLiveness = false;
   std::vector<VirtualRegisterDefinition> VirtualRegisters;
+  std::vector<MachineFunctionLiveIn> LiveIns;
   // TODO: Serialize the various register masks.
-  // TODO: Serialize live in registers.
   // Frame information
   MachineFrameInfo FrameInfo;
   std::vector<FixedMachineStackObject> FixedStackObjects;
@@ -359,6 +417,7 @@ template <> struct MappingTraits<MachineFunction> {
     YamlIO.mapOptional("tracksRegLiveness", MF.TracksRegLiveness);
     YamlIO.mapOptional("tracksSubRegLiveness", MF.TracksSubRegLiveness);
     YamlIO.mapOptional("registers", MF.VirtualRegisters);
+    YamlIO.mapOptional("liveins", MF.LiveIns);
     YamlIO.mapOptional("frameInfo", MF.FrameInfo);
     YamlIO.mapOptional("fixedStack", MF.FixedStackObjects);
     YamlIO.mapOptional("stack", MF.StackObjects);

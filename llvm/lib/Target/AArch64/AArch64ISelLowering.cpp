@@ -40,23 +40,6 @@ using namespace llvm;
 STATISTIC(NumTailCalls, "Number of tail calls");
 STATISTIC(NumShiftInserts, "Number of vector shift inserts");
 
-namespace {
-enum AlignMode {
-  StrictAlign,
-  NoStrictAlign
-};
-}
-
-static cl::opt<AlignMode>
-Align(cl::desc("Load/store alignment support"),
-      cl::Hidden, cl::init(NoStrictAlign),
-      cl::values(
-          clEnumValN(StrictAlign,   "aarch64-strict-align",
-                     "Disallow all unaligned memory accesses"),
-          clEnumValN(NoStrictAlign, "aarch64-no-strict-align",
-                     "Allow unaligned memory accesses"),
-          clEnumValEnd));
-
 // Place holder until extr generation is tested fully.
 static cl::opt<bool>
 EnableAArch64ExtrGeneration("aarch64-extr-generation", cl::Hidden,
@@ -459,12 +442,14 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
     setIndexedLoadAction(im, MVT::i64, Legal);
     setIndexedLoadAction(im, MVT::f64, Legal);
     setIndexedLoadAction(im, MVT::f32, Legal);
+    setIndexedLoadAction(im, MVT::f16, Legal);
     setIndexedStoreAction(im, MVT::i8, Legal);
     setIndexedStoreAction(im, MVT::i16, Legal);
     setIndexedStoreAction(im, MVT::i32, Legal);
     setIndexedStoreAction(im, MVT::i64, Legal);
     setIndexedStoreAction(im, MVT::f64, Legal);
     setIndexedStoreAction(im, MVT::f32, Legal);
+    setIndexedStoreAction(im, MVT::f16, Legal);
   }
 
   // Trap.
@@ -515,9 +500,9 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
 
   setMinFunctionAlignment(2);
 
-  RequireStrictAlign = (Align == StrictAlign);
-
   setHasExtractBitsInsn(true);
+
+  setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
 
   if (Subtarget->hasNEON()) {
     // FIXME: v1f64 shouldn't be legal if we can avoid it, because it leads to
@@ -649,6 +634,9 @@ void AArch64TargetLowering::addTypeForNEON(EVT VT, EVT PromotedBitwiseVT) {
     setOperationAction(ISD::FLOG10, VT.getSimpleVT(), Expand);
     setOperationAction(ISD::FEXP, VT.getSimpleVT(), Expand);
     setOperationAction(ISD::FEXP2, VT.getSimpleVT(), Expand);
+
+    // But we do support custom-lowering for FCOPYSIGN.
+    setOperationAction(ISD::FCOPYSIGN, VT.getSimpleVT(), Custom);
   }
 
   setOperationAction(ISD::EXTRACT_VECTOR_ELT, VT.getSimpleVT(), Custom);
@@ -783,6 +771,18 @@ void AArch64TargetLowering::computeKnownBitsForTargetNode(
 MVT AArch64TargetLowering::getScalarShiftAmountTy(const DataLayout &DL,
                                                   EVT) const {
   return MVT::i64;
+}
+
+bool AArch64TargetLowering::allowsMisalignedMemoryAccesses(EVT VT,
+                                                           unsigned AddrSpace,
+                                                           unsigned Align,
+                                                           bool *Fast) const {
+  if (Subtarget->requiresStrictAlign())
+    return false;
+  // FIXME: True for Cyclone, but not necessary others.
+  if (Fast)
+    *Fast = true;
+  return true;
 }
 
 FastISel *
@@ -2158,6 +2158,19 @@ static SDValue LowerMUL(SDValue Op, SelectionDAG &DAG) {
                                DAG.getNode(ISD::BITCAST, DL, Op1VT, N01), Op1));
 }
 
+SDValue AArch64TargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
+                                                     SelectionDAG &DAG) const {
+  unsigned IntNo = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
+  SDLoc dl(Op);
+  switch (IntNo) {
+  default: return SDValue();    // Don't custom lower most intrinsics.
+  case Intrinsic::aarch64_thread_pointer: {
+    EVT PtrVT = getPointerTy(DAG.getDataLayout());
+    return DAG.getNode(AArch64ISD::THREAD_POINTER, dl, PtrVT);
+  }
+  }
+}
+
 SDValue AArch64TargetLowering::LowerOperation(SDValue Op,
                                               SelectionDAG &DAG) const {
   switch (Op.getOpcode()) {
@@ -2259,6 +2272,8 @@ SDValue AArch64TargetLowering::LowerOperation(SDValue Op,
     return LowerFSINCOS(Op, DAG);
   case ISD::MUL:
     return LowerMUL(Op, DAG);
+  case ISD::INTRINSIC_WO_CHAIN:
+    return LowerINTRINSIC_WO_CHAIN(Op, DAG);
   }
 }
 
@@ -2680,8 +2695,8 @@ bool AArch64TargetLowering::isEligibleForTailCallOptimization(
                    *DAG.getContext());
 
     CCInfo.AnalyzeCallOperands(Outs, CCAssignFnForCall(CalleeCC, true));
-    for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i)
-      if (!ArgLocs[i].isRegLoc())
+    for (const CCValAssign &ArgLoc : ArgLocs)
+      if (!ArgLoc.isRegLoc())
         return false;
   }
 
@@ -3029,9 +3044,9 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   // Build a sequence of copy-to-reg nodes chained together with token chain
   // and flag operands which copy the outgoing args into the appropriate regs.
   SDValue InFlag;
-  for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i) {
-    Chain = DAG.getCopyToReg(Chain, DL, RegsToPass[i].first,
-                             RegsToPass[i].second, InFlag);
+  for (auto &RegToPass : RegsToPass) {
+    Chain = DAG.getCopyToReg(Chain, DL, RegToPass.first,
+                             RegToPass.second, InFlag);
     InFlag = Chain.getValue(1);
   }
 
@@ -3087,9 +3102,9 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   // Add argument registers to the end of the list so that they are known live
   // into the call.
-  for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i)
-    Ops.push_back(DAG.getRegister(RegsToPass[i].first,
-                                  RegsToPass[i].second.getValueType()));
+  for (auto &RegToPass : RegsToPass)
+    Ops.push_back(DAG.getRegister(RegToPass.first,
+                                  RegToPass.second.getValueType()));
 
   // Add a register mask operand representing the call-preserved registers.
   const uint32_t *Mask;
@@ -3387,6 +3402,10 @@ AArch64TargetLowering::LowerELFGlobalTLSAddress(SDValue Op,
   const GlobalAddressSDNode *GA = cast<GlobalAddressSDNode>(Op);
 
   TLSModel::Model Model = getTargetMachine().getTLSModel(GA->getGlobal());
+
+  if (DAG.getTarget().Options.EmulatedTLS)
+    return LowerToTLSEmulatedModel(GA, DAG);
+
   if (!EnableAArch64ELFLocalDynamicTLSGeneration) {
     if (Model == TLSModel::LocalDynamic)
       Model = TLSModel::GeneralDynamic;
@@ -3637,7 +3656,7 @@ SDValue AArch64TargetLowering::LowerFCOPYSIGN(SDValue Op,
   SDValue VecVal1, VecVal2;
   if (VT == MVT::f32 || VT == MVT::v2f32 || VT == MVT::v4f32) {
     EltVT = MVT::i32;
-    VecVT = MVT::v4i32;
+    VecVT = (VT == MVT::v2f32 ? MVT::v2i32 : MVT::v4i32);
     EltMask = 0x80000000ULL;
 
     if (!VT.isVector()) {
@@ -5880,11 +5899,10 @@ static SDValue NormalizeBuildVector(SDValue Op,
     return Op;
 
   SmallVector<SDValue, 16> Ops;
-  for (unsigned I = 0, E = VT.getVectorNumElements(); I != E; ++I) {
-    SDValue Lane = Op.getOperand(I);
-    if (Lane.getOpcode() == ISD::Constant) {
+  for (SDValue Lane : Op->ops()) {
+    if (auto *CstLane = dyn_cast<ConstantSDNode>(Lane)) {
       APInt LowBits(EltTy.getSizeInBits(),
-                    cast<ConstantSDNode>(Lane)->getZExtValue());
+                    CstLane->getZExtValue());
       Lane = DAG.getConstant(LowBits.getZExtValue(), dl, MVT::i32);
     }
     Ops.push_back(Lane);
@@ -6224,8 +6242,7 @@ FailedModImm:
 
   // Empirical tests suggest this is rarely worth it for vectors of length <= 2.
   if (NumElts >= 4) {
-    SDValue shuffle = ReconstructShuffle(Op, DAG);
-    if (shuffle != SDValue())
+    if (SDValue shuffle = ReconstructShuffle(Op, DAG))
       return shuffle;
   }
 
@@ -7448,8 +7465,7 @@ static SDValue performIntToFpCombine(SDNode *N, SelectionDAG &DAG,
                                      const AArch64Subtarget *Subtarget) {
   // First try to optimize away the conversion when it's conditionally from
   // a constant. Vectors only.
-  SDValue Res = performVectorCompareAndMaskUnaryOpCombine(N, DAG);
-  if (Res != SDValue())
+  if (SDValue Res = performVectorCompareAndMaskUnaryOpCombine(N, DAG))
     return Res;
 
   EVT VT = N->getValueType(0);
@@ -8190,7 +8206,6 @@ static SDValue performIntrinsicCombine(SDNode *N,
   case Intrinsic::aarch64_neon_vcvtfxs2fp:
   case Intrinsic::aarch64_neon_vcvtfxu2fp:
     return tryCombineFixedPointConvert(N, DCI, DAG);
-    break;
   case Intrinsic::aarch64_neon_saddv:
     return combineAcrossLanesIntrinsic(AArch64ISD::SADDV, N, DAG);
   case Intrinsic::aarch64_neon_uaddv:
@@ -8407,10 +8422,8 @@ static SDValue performSTORECombine(SDNode *N,
   if (!Subtarget->isCyclone())
     return SDValue();
 
-  // Don't split at Oz.
-  MachineFunction &MF = DAG.getMachineFunction();
-  bool IsMinSize = MF.getFunction()->hasFnAttribute(Attribute::MinSize);
-  if (IsMinSize)
+  // Don't split at -Oz.
+  if (DAG.getMachineFunction().getFunction()->optForMinSize())
     return SDValue();
 
   SDValue StVal = S->getValue();
@@ -8433,8 +8446,7 @@ static SDValue performSTORECombine(SDNode *N,
   // If we get a splat of a scalar convert this vector store to a store of
   // scalars. They will be merged into store pairs thereby removing two
   // instructions.
-  SDValue ReplacedSplat = replaceSplatVectorStore(DAG, S);
-  if (ReplacedSplat != SDValue())
+  if (SDValue ReplacedSplat = replaceSplatVectorStore(DAG, S))
     return ReplacedSplat;
 
   SDLoc DL(S);
@@ -9406,10 +9418,10 @@ bool AArch64TargetLowering::useLoadStackGuardNode() const {
   return true;
 }
 
-bool AArch64TargetLowering::combineRepeatedFPDivisors(unsigned NumUsers) const {
+unsigned AArch64TargetLowering::combineRepeatedFPDivisors() const {
   // Combine multiple FDIVs with the same divisor into multiple FMULs by the
   // reciprocal if there are three or more FDIVs.
-  return NumUsers > 2;
+  return 3;
 }
 
 TargetLoweringBase::LegalizeTypeAction
