@@ -52,6 +52,7 @@ private:
   /// able to be called by llvm.
   std::map<Function *, Function *> FuncToWrapFunc;
   std::map<Function *, StructType *> FuncToStruct;
+  std::map<Type *, StructType *> TyToFutureTy;
 
   /// Maps the original value to its future equivalent, so that futures
   /// can be forced.
@@ -323,6 +324,30 @@ private:
     return WF;
   }
 
+  Type *GetFutureType(Type *Orig) {
+    Type *Ty;
+
+    if (this->TyToFutureTy.find(Orig) == this->TyToFutureTy.end()) {
+      std::vector<Type *> Members;
+
+      if (StructType::isValidElementType(Orig)) {
+        Members.push_back(Orig);
+      } else {
+        Members.push_back(Type::getInt32Ty(Orig->getContext()));
+      }
+
+      Members.push_back(this->PThreadTy);
+      Members.push_back(this->SemTy);
+      Ty = StructType::create(ArrayRef<Type *>(Members));
+
+      this->TyToFutureTy.emplace(Orig, Ty);
+    } else {
+      Ty = this->TyToFutureTy[Orig];
+    }
+
+    return Ty;
+  }
+
   /// Given a call instruction, will wrap up the call into a pthread launch.
   ///
   /// TODO: Reduce the number of arguments this takes.
@@ -384,18 +409,20 @@ private:
 
     Function *F = I->getCalledFunction();
     StructType *Ty = GetFuncStruct(F);
+    Type *FutureTy = GetFutureType(F->getReturnType());
     Function *WF = GetWrapperFunction(M, F, Ty);
 
     IRBuilder<> B(I);
     // Value *ThreadPtr = B.CreateAlloca(Type::getInt64Ty(I->getContext()));
     Value *ArgPtr = B.CreateAlloca(Ty);
+    Value *Future = B.CreateBitCast(ArgPtr, PointerType::get(FutureTy, 0));
 
     InitCopyMutex(B, ArgPtr);
     LaunchWrapper(I, WF, Ty, ArgPtr, B);
     WaitForCopyMutex(B, ArgPtr);
 
     if (I->getNumUses() > 0) {
-      this->OrigToFuture[I] = ArgPtr;
+      this->OrigToFuture[I] = Future;
     }
 
     return true;
@@ -423,17 +450,66 @@ private:
     return RetVal;
   }
 
-  bool ForceFutures(Module *M) {
-    bool Changed = false;
+  Value *GetIncomingFuture(PHINode *POrig, unsigned int i) {
+    Value *F = nullptr;
 
-    // For now I'm still ignoring phi nodes. This is just an attempt to
-    // restructure.
+    // IM STILL WORKING ON THIS. THE HOPE IS THIS WILL GET A FUTURE VALUE FROM THE ORIGINAL PHI,
+    // AND RETURN IT (OR IN THE FUTURE FIX IT IF ITS NOT THERE)
+    // THEN, WHEN THIS IS DONE I SHOULD BE ABLE TO MAKE NEW PHI NODES PROPERLY... FINGERS CROSSED!
+
+    if (this->.find(Orig) == this->TyToFutureTy.end()) {
+
+    } else {
+    }
+    return F;
+  }
+
+  bool MakeFuturePhis(Module *M) {
+    bool Changed = false;
+    std::set<Value *> Origs;
+    std::set<PHINode *> PHIs;
+
+    // TODO: This is dumb. I need to spend some time making this more C++y
+    for (auto &F : this->OrigToFuture) {
+      Origs.insert(F.first);
+    }
+
+    PHIs = getFutureUnions(Origs);
+
+    // Add the Phis to our map (and set changed to true)
+    for (auto &P : PHIs) {
+      Changed = true;
+      this->OrigToFuture[P] = PHINode::Create(PointerType::get(P->getType(), 0),
+                                              P->getNumIncomingValues(), "", P);
+    }
+
+    // Flesh out the new Phi nodes by looking up everything in the OrigToFuture
+    // map.
+    // Note that this will fail when the future was joined with a non-future. We
+    // don't support that yet, but when we do, the code would go here.
+    for (auto &P : PHIs) {
+      for (unsigned int i = 0; i < P->getNumIncomingValues(); i++) {
+        PHINode *FPhi = cast<PHINode>(this->OrigToFuture[P]);
+
+        FPhi->setIncomingValue(i, this->OrigToFuture[P->getIncomingValue(i)]);
+        FPhi->setIncomingBlock(i, P->getIncomingBlock(i));
+      }
+    }
+
+    return Changed;
+  }
+
+  bool ForceFutures(Module *M) {
+    bool Changed = MakeFuturePhis(M);
+
     for (auto &Future : this->OrigToFuture) {
       std::vector<Instruction *> Uses;
 
       for (User *U : Future.first->users()) {
         if (Instruction *Inst = dyn_cast<Instruction>(U)) {
-          Uses.push_back(Inst);
+          if (!is_a<PHINode>(U)) {
+            Uses.push_back(Inst);
+          }
         }
       }
 
