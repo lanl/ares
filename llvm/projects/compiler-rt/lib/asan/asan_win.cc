@@ -16,7 +16,6 @@
 #if SANITIZER_WINDOWS
 #include <windows.h>
 
-#include <dbghelp.h>
 #include <stdlib.h>
 
 #include "asan_interceptors.h"
@@ -198,7 +197,7 @@ void ReadContextStack(void *context, uptr *stack, uptr *ssize) {
   UNIMPLEMENTED();
 }
 
-void AsanOnSIGSEGV(int, void *siginfo, void *context) {
+void AsanOnDeadlySignal(int, void *siginfo, void *context) {
   UNIMPLEMENTED();
 }
 
@@ -215,7 +214,7 @@ static long WINAPI SEHHandler(EXCEPTION_POINTERS *info) {
             ? "access-violation"
             : "in-page-error";
     SignalContext sig = SignalContext::Create(exception_record, context);
-    ReportSIGSEGV(description, sig);
+    ReportDeadlySignal(description, sig);
   }
 
   // FIXME: Handle EXCEPTION_STACK_OVERFLOW here.

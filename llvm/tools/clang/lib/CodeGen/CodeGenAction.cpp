@@ -180,7 +180,7 @@ namespace clang {
       Ctx.setDiagnosticHandler(DiagnosticHandler, this);
 
       EmitBackendOutput(Diags, CodeGenOpts, TargetOpts, LangOpts,
-                        C.getTargetInfo().getTargetDescription(),
+                        C.getTargetInfo().getDataLayoutString(),
                         TheModule.get(), Action, AsmOutStream);
 
       Ctx.setInlineAsmDiagnosticHandler(OldHandler, OldContext);
@@ -333,8 +333,7 @@ void BackendConsumer::InlineAsmDiagHandler2(const llvm::SMDiagnostic &D,
       DiagnosticBuilder B = Diags.Report(Loc, diag::note_fe_inline_asm_here);
       // Convert the SMDiagnostic ranges into SourceRange and attach them
       // to the diagnostic.
-      for (unsigned i = 0, e = D.getRanges().size(); i != e; ++i) {
-        std::pair<unsigned, unsigned> Range = D.getRanges()[i];
+      for (const std::pair<unsigned, unsigned> &Range : D.getRanges()) {
         unsigned Column = D.getColumnNo();
         B << SourceRange(Loc.getLocWithOffset(Range.first - Column),
                          Loc.getLocWithOffset(Range.second - Column));
@@ -735,7 +734,7 @@ void CodeGenAction::ExecuteAction() {
     LLVMContext &Ctx = TheModule->getContext();
     Ctx.setInlineAsmDiagnosticHandler(BitcodeInlineAsmDiagHandler);
     EmitBackendOutput(CI.getDiagnostics(), CI.getCodeGenOpts(), TargetOpts,
-                      CI.getLangOpts(), CI.getTarget().getTargetDescription(),
+                      CI.getLangOpts(), CI.getTarget().getDataLayoutString(),
                       TheModule.get(), BA, OS);
     return;
   }

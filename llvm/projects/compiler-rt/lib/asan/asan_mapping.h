@@ -73,6 +73,13 @@
 // || `[0x2000000000, 0x23ffffffff]` || LowShadow  ||
 // || `[0x0000000000, 0x1fffffffff]` || LowMem     ||
 //
+// Default Linux/AArch64 (39-bit VMA) mapping:
+// || `[0x2000000000, 0x7fffffffff]` || highmem    ||
+// || `[0x1400000000, 0x1fffffffff]` || highshadow ||
+// || `[0x1200000000, 0x13ffffffff]` || shadowgap  ||
+// || `[0x1000000000, 0x11ffffffff]` || lowshadow  ||
+// || `[0x0000000000, 0x0fffffffff]` || lowmem     ||
+//
 // Shadow mapping on FreeBSD/x86-64 with SHADOW_OFFSET == 0x400000000000:
 // || `[0x500000000000, 0x7fffffffffff]` || HighMem    ||
 // || `[0x4a0000000000, 0x4fffffffffff]` || HighShadow ||
@@ -113,11 +120,12 @@ static const u64 kFreeBSD_ShadowOffset64 = 1ULL << 46;  // 0x400000000000
 static const u64 kWindowsShadowOffset32 = 3ULL << 28;  // 0x30000000
 
 #define SHADOW_SCALE kDefaultShadowScale
-#if SANITIZER_ANDROID
-# define SHADOW_OFFSET (0)
-#else
-# if SANITIZER_WORDSIZE == 32
-#  if defined(__mips__)
+
+
+#if SANITIZER_WORDSIZE == 32
+#  if SANITIZER_ANDROID
+#    define SHADOW_OFFSET (0)
+#  elif defined(__mips__)
 #    define SHADOW_OFFSET kMIPS32_ShadowOffset32
 #  elif SANITIZER_FREEBSD
 #    define SHADOW_OFFSET kFreeBSD_ShadowOffset32
@@ -130,7 +138,7 @@ static const u64 kWindowsShadowOffset32 = 3ULL << 28;  // 0x30000000
 #  else
 #    define SHADOW_OFFSET kDefaultShadowOffset32
 #  endif
-# else
+#else
 #  if defined(__aarch64__)
 #    define SHADOW_OFFSET kAArch64_ShadowOffset64
 #  elif defined(__powerpc64__)
@@ -148,7 +156,6 @@ static const u64 kWindowsShadowOffset32 = 3ULL << 28;  // 0x30000000
 #  else
 #   define SHADOW_OFFSET kDefaultShort64bitShadowOffset
 #  endif
-# endif
 #endif
 
 #define SHADOW_GRANULARITY (1ULL << SHADOW_SCALE)

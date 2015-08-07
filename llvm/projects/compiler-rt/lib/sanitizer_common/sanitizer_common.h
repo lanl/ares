@@ -224,6 +224,13 @@ bool WriteToFile(fd_t fd, const void *buff, uptr buff_size,
 bool RenameFile(const char *oldpath, const char *newpath,
                 error_t *error_p = nullptr);
 
+// Scoped file handle closer.
+struct FileCloser {
+  explicit FileCloser(fd_t fd) : fd(fd) {}
+  ~FileCloser() { CloseFile(fd); }
+  fd_t fd;
+};
+
 bool SupportsColoredOutput(fd_t fd);
 
 // Opens the file 'file_name" and reads up to 'max_len' bytes.
@@ -238,7 +245,7 @@ bool ReadFileToBuffer(const char *file_name, char **buff, uptr *buff_size,
 // (or NULL if mapping fails). Stores the size of mmaped region
 // in '*buff_size'.
 void *MapFileToMemory(const char *file_name, uptr *buff_size);
-void *MapWritableFileToMemory(void *addr, uptr size, fd_t fd, uptr offset);
+void *MapWritableFileToMemory(void *addr, uptr size, fd_t fd, OFF_T offset);
 
 bool IsAccessibleMemoryRange(uptr beg, uptr size);
 
@@ -251,7 +258,9 @@ const char *StripModuleName(const char *module);
 // OS
 uptr ReadBinaryName(/*out*/char *buf, uptr buf_len);
 uptr ReadBinaryNameCached(/*out*/char *buf, uptr buf_len);
-const char *GetBinaryBasename();
+uptr ReadLongProcessName(/*out*/ char *buf, uptr buf_len);
+const char *GetProcessName();
+void UpdateProcessName();
 void CacheBinaryName();
 void DisableCoreDumperIfNecessary();
 void DumpProcessMap();
