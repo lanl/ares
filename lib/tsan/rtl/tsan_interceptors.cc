@@ -67,6 +67,12 @@ struct ucontext_t {
 };
 #endif
 
+#if defined(__x86_64__) || defined(__mips__)
+#define PTHREAD_ABI_BASE  "GLIBC_2.3.2"
+#elif defined(__aarch64__)
+#define PTHREAD_ABI_BASE  "GLIBC_2.17"
+#endif
+
 extern "C" int pthread_attr_init(void *attr);
 extern "C" int pthread_attr_destroy(void *attr);
 DECLARE_REAL(int, pthread_attr_getdetachstate, void *, void *)
@@ -604,20 +610,6 @@ TSAN_INTERCEPTOR(void*, memcpy, void *dst, const void *src, uptr size) {
     MemoryAccessRange(thr, pc, (uptr)src, size, false);
   }
   return internal_memcpy(dst, src, size);
-}
-
-TSAN_INTERCEPTOR(int, memcmp, const void *s1, const void *s2, uptr n) {
-  SCOPED_TSAN_INTERCEPTOR(memcmp, s1, s2, n);
-  int res = 0;
-  uptr len = 0;
-  for (; len < n; len++) {
-    if ((res = ((const unsigned char *)s1)[len] -
-               ((const unsigned char *)s2)[len]))
-      break;
-  }
-  MemoryAccessRange(thr, pc, (uptr)s1, len < n ? len + 1 : n, false);
-  MemoryAccessRange(thr, pc, (uptr)s2, len < n ? len + 1 : n, false);
-  return res;
 }
 
 TSAN_INTERCEPTOR(void*, memmove, void *dst, void *src, uptr n) {
@@ -2469,7 +2461,6 @@ void InitializeInterceptors() {
   // We need to setup it early, because functions like dlsym() can call it.
   REAL(memset) = internal_memset;
   REAL(memcpy) = internal_memcpy;
-  REAL(memcmp) = internal_memcmp;
 
   // Instruct libc malloc to consume less memory.
 #if !SANITIZER_FREEBSD
@@ -2508,7 +2499,6 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(memset);
   TSAN_INTERCEPT(memcpy);
   TSAN_INTERCEPT(memmove);
-  TSAN_INTERCEPT(memcmp);
   TSAN_INTERCEPT(strchr);
   TSAN_INTERCEPT(strchrnul);
   TSAN_INTERCEPT(strrchr);
@@ -2520,12 +2510,12 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(pthread_join);
   TSAN_INTERCEPT(pthread_detach);
 
-  TSAN_INTERCEPT_VER(pthread_cond_init, "GLIBC_2.3.2");
-  TSAN_INTERCEPT_VER(pthread_cond_signal, "GLIBC_2.3.2");
-  TSAN_INTERCEPT_VER(pthread_cond_broadcast, "GLIBC_2.3.2");
-  TSAN_INTERCEPT_VER(pthread_cond_wait, "GLIBC_2.3.2");
-  TSAN_INTERCEPT_VER(pthread_cond_timedwait, "GLIBC_2.3.2");
-  TSAN_INTERCEPT_VER(pthread_cond_destroy, "GLIBC_2.3.2");
+  TSAN_INTERCEPT_VER(pthread_cond_init, PTHREAD_ABI_BASE);
+  TSAN_INTERCEPT_VER(pthread_cond_signal, PTHREAD_ABI_BASE);
+  TSAN_INTERCEPT_VER(pthread_cond_broadcast, PTHREAD_ABI_BASE);
+  TSAN_INTERCEPT_VER(pthread_cond_wait, PTHREAD_ABI_BASE);
+  TSAN_INTERCEPT_VER(pthread_cond_timedwait, PTHREAD_ABI_BASE);
+  TSAN_INTERCEPT_VER(pthread_cond_destroy, PTHREAD_ABI_BASE);
 
   TSAN_INTERCEPT(pthread_mutex_init);
   TSAN_INTERCEPT(pthread_mutex_destroy);

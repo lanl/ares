@@ -104,7 +104,7 @@ namespace __sanitizer {
 
 // --------------- sanitizer_libc.h
 uptr internal_mmap(void *addr, uptr length, int prot, int flags, int fd,
-                   u64 offset) {
+                   OFF_T offset) {
 #if SANITIZER_FREEBSD || SANITIZER_LINUX_USES_64BIT_SYSCALLS
   return internal_syscall(SYSCALL(mmap), (uptr)addr, length, prot, flags, fd,
                           offset);
@@ -730,6 +730,21 @@ uptr ReadBinaryName(/*out*/char *buf, uptr buf_len) {
   return module_name_len;
 }
 
+uptr ReadLongProcessName(/*out*/ char *buf, uptr buf_len) {
+#if SANITIZER_LINUX
+  char *tmpbuf;
+  uptr tmpsize;
+  uptr tmplen;
+  if (ReadFileToBuffer("/proc/self/cmdline", &tmpbuf, &tmpsize, &tmplen,
+                       1024 * 1024)) {
+    internal_strncpy(buf, tmpbuf, buf_len);
+    UnmapOrDie(tmpbuf, tmpsize);
+    return internal_strlen(buf);
+  }
+#endif
+  return ReadBinaryName(buf, buf_len);
+}
+
 // Match full names of the form /path/to/base_name{-,.}*
 bool LibraryNameIs(const char *full_name, const char *base_name) {
   const char *name = full_name;
@@ -911,6 +926,57 @@ uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
                        : "memory", "$29" );
   return res;
 }
+#elif defined(__aarch64__)
+uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
+                    int *parent_tidptr, void *newtls, int *child_tidptr) {
+  long long res;
+  if (!fn || !child_stack)
+    return -EINVAL;
+  CHECK_EQ(0, (uptr)child_stack % 16);
+  child_stack = (char *)child_stack - 2 * sizeof(unsigned long long);
+  ((unsigned long long *)child_stack)[0] = (uptr)fn;
+  ((unsigned long long *)child_stack)[1] = (uptr)arg;
+
+  register int (*__fn)(void *)  __asm__("x0") = fn;
+  register void *__stack __asm__("x1") = child_stack;
+  register int   __flags __asm__("x2") = flags;
+  register void *__arg   __asm__("x3") = arg;
+  register int  *__ptid  __asm__("x4") = parent_tidptr;
+  register void *__tls   __asm__("x5") = newtls;
+  register int  *__ctid  __asm__("x6") = child_tidptr;
+
+  __asm__ __volatile__(
+                       "mov x0,x2\n" /* flags  */
+                       "mov x2,x4\n" /* ptid  */
+                       "mov x3,x5\n" /* tls  */
+                       "mov x4,x6\n" /* ctid  */
+                       "mov x8,%9\n" /* clone  */
+
+                       "svc 0x0\n"
+
+                       /* if (%r0 != 0)
+                        *   return %r0;
+                        */
+                       "cmp x0, #0\n"
+                       "bne 1f\n"
+
+                       /* In the child, now. Call "fn(arg)". */
+                       "ldp x1, x0, [sp], #16\n"
+                       "blr x1\n"
+
+                       /* Call _exit(%r0).  */
+                       "mov x8, %10\n"
+                       "svc 0x0\n"
+                     "1:\n"
+
+                       : "=r" (res)
+                       : "i"(-EINVAL),
+                         "r"(__fn), "r"(__stack), "r"(__flags), "r"(__arg),
+                         "r"(__ptid), "r"(__tls), "r"(__ctid),
+                         "i"(__NR_clone), "i"(__NR_exit)
+                       : "x30", "memory");
+  return res;
+}
 #endif  // defined(__x86_64__) && SANITIZER_LINUX
 
 #if SANITIZER_ANDROID
@@ -967,6 +1033,8 @@ AndroidApiLevel AndroidGetApiLevel() {
 
 bool IsDeadlySignal(int signum) {
   if (common_flags()->handle_abort && signum == SIGABRT)
+    return true;
+  if (common_flags()->handle_sigfpe && signum == SIGFPE)
     return true;
   return (signum == SIGSEGV || signum == SIGBUS) && common_flags()->handle_segv;
 }
