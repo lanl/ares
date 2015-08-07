@@ -78,6 +78,8 @@ COMMON_FLAG(bool, handle_segv, SANITIZER_NEEDS_SEGV,
             "If set, registers the tool's custom SIGSEGV/SIGBUS handler.")
 COMMON_FLAG(bool, handle_abort, false,
             "If set, registers the tool's custom SIGABRT handler.")
+COMMON_FLAG(bool, handle_sigfpe, true,
+            "If set, registers the tool's custom SIGFPE handler.")
 COMMON_FLAG(bool, allow_user_segv_handler, false,
             "If set, allows user to register a SEGV handler even if the tool "
             "registers one.")
@@ -174,6 +176,12 @@ COMMON_FLAG(bool, intercept_strspn, true,
 COMMON_FLAG(bool, intercept_strpbrk, true,
             "If set, uses custom wrappers for strpbrk function "
             "to find more errors.")
+COMMON_FLAG(bool, intercept_memcmp, true,
+            "If set, uses custom wrappers for memcmp function "
+            "to find more errors.")
+COMMON_FLAG(bool, strict_memcmp, true,
+          "If true, assume that memcmp(p1, p2, n) always reads n bytes before "
+          "comparing p1 and p2.")
 COMMON_FLAG(bool, decorate_proc_maps, false, "If set, decorate sanitizer "
                                              "mappings in /proc/self/maps with "
                                              "user-readable names")
