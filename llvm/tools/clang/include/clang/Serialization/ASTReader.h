@@ -494,20 +494,32 @@ private:
   /// \brief Map from a FileID to the file-level declarations that it contains.
   llvm::DenseMap<FileID, FileDeclsInfo> FileDeclIDs;
 
+  /// \brief An array of lexical contents of a declaration context, as a sequence of
+  /// Decl::Kind, DeclID pairs.
+  typedef ArrayRef<llvm::support::unaligned_uint32_t> LexicalContents;
+
+  /// \brief Map from a DeclContext to its lexical contents.
+  llvm::DenseMap<const DeclContext*, LexicalContents> LexicalDecls;
+
+  /// \brief Map from the TU to its lexical contents from each module file.
+  std::vector<std::pair<ModuleFile*, LexicalContents>> TULexicalDecls;
+
   // Updates for visible decls can occur for other contexts than just the
-  // TU, and when we read those update records, the actual context will not
-  // be available yet (unless it's the TU), so have this pending map using the
-  // ID as a key. It will be realized when the context is actually loaded.
-  typedef
-    SmallVector<std::pair<serialization::reader::ASTDeclContextNameLookupTable *,
-                          ModuleFile*>, 1> DeclContextVisibleUpdates;
-  typedef llvm::DenseMap<serialization::DeclID, DeclContextVisibleUpdates>
-      DeclContextVisibleUpdatesPending;
+  // TU, and when we read those update records, the actual context may not
+  // be available yet, so have this pending map using the ID as a key. It
+  // will be realized when the context is actually loaded.
+  struct PendingVisibleUpdate {
+    ModuleFile *Mod;
+    const unsigned char *Data;
+    unsigned BucketOffset;
+  };
+  typedef SmallVector<PendingVisibleUpdate, 1> DeclContextVisibleUpdates;
 
   /// \brief Updates to the visible declarations of declaration contexts that
   /// haven't been loaded yet.
-  DeclContextVisibleUpdatesPending PendingVisibleUpdates;
-  
+  llvm::DenseMap<serialization::DeclID, DeclContextVisibleUpdates>
+      PendingVisibleUpdates;
+
   /// \brief The set of C++ or Objective-C classes that have forward 
   /// declarations that have not yet been linked to their definitions.
   llvm::SmallPtrSet<Decl *, 4> PendingDefinitions;
@@ -524,11 +536,14 @@ private:
   /// performed deduplication.
   llvm::SetVector<NamedDecl*> PendingMergedDefinitionsToDeduplicate;
 
-  /// \brief Read the records that describe the contents of declcontexts.
-  bool ReadDeclContextStorage(ModuleFile &M,
-                              llvm::BitstreamCursor &Cursor,
-                              const std::pair<uint64_t, uint64_t> &Offsets,
-                              serialization::DeclContextInfo &Info);
+  /// \brief Read the record that describes the lexical contents of a DC.
+  bool ReadLexicalDeclContextStorage(ModuleFile &M,
+                                     llvm::BitstreamCursor &Cursor,
+                                     uint64_t Offset, DeclContext *DC);
+  /// \brief Read the record that describes the visible contents of a DC.
+  bool ReadVisibleDeclContextStorage(ModuleFile &M,
+                                     llvm::BitstreamCursor &Cursor,
+                                     uint64_t Offset, serialization::DeclID ID);
 
   /// \brief A vector containing identifiers that have already been
   /// loaded.
@@ -971,13 +986,6 @@ private:
   /// loaded, for which we will need to check for categories whenever a new
   /// module is loaded.
   SmallVector<ObjCInterfaceDecl *, 16> ObjCClassesLoaded;
-
-  /// \brief A mapping from a primary context for a declaration chain to the
-  /// other declarations of that entity that also have name lookup tables.
-  /// Used when we merge together two class definitions that have different
-  /// sets of declared special member functions.
-  llvm::DenseMap<const DeclContext*, SmallVector<const DeclContext*, 2>>
-      MergedLookups;
 
   typedef llvm::DenseMap<Decl *, SmallVector<serialization::DeclID, 2> >
     KeyDeclsMap;
@@ -1698,16 +1706,17 @@ public:
   /// \param DC The declaration context whose declarations will be
   /// read.
   ///
+  /// \param IsKindWeWant A predicate indicating which declaration kinds
+  /// we are interested in.
+  ///
   /// \param Decls Vector that will contain the declarations loaded
   /// from the external source. The caller is responsible for merging
   /// these declarations with any declarations already stored in the
   /// declaration context.
-  ///
-  /// \returns true if there was an error while reading the
-  /// declarations for this declaration context.
-  ExternalLoadResult FindExternalLexicalDecls(const DeclContext *DC,
-                                bool (*isKindWeWant)(Decl::Kind),
-                                SmallVectorImpl<Decl*> &Decls) override;
+  void
+  FindExternalLexicalDecls(const DeclContext *DC,
+                           llvm::function_ref<bool(Decl::Kind)> IsKindWeWant,
+                           SmallVectorImpl<Decl *> &Decls) override;
 
   /// \brief Get the decls that are contained in a file in the Offset/Length
   /// range. \p Length can be 0 to indicate a point at \p Offset instead of
