@@ -252,6 +252,8 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
   unsigned DwarfVersionNumber = Asm->TM.Options.MCOptions.DwarfVersion;
   DwarfVersion = DwarfVersionNumber ? DwarfVersionNumber
                                     : MMI->getModule()->getDwarfVersion();
+  // Use dwarf 4 by default if nothing is requested.
+  DwarfVersion = DwarfVersion ? DwarfVersion : dwarf::DWARF_VERSION;
 
   // Work around a GDB bug. GDB doesn't support the standard opcode;
   // SCE doesn't support GNU's; LLDB prefers the standard opcode, which
@@ -1156,7 +1158,7 @@ void DwarfDebug::beginFunction(const MachineFunction *MF) {
     // The first mention of a function argument gets the CurrentFnBegin
     // label, so arguments are visible when breaking at function entry.
     const DILocalVariable *DIVar = Ranges.front().first->getDebugVariable();
-    if (DIVar->getTag() == dwarf::DW_TAG_arg_variable &&
+    if (DIVar->isParameter() &&
         getDISubprogram(DIVar->getScope())->describes(MF->getFunction())) {
       LabelsBeforeInsn[Ranges.front().first] = Asm->getFunctionBegin();
       if (Ranges.front().first->getDebugExpression()->isBitPiece()) {

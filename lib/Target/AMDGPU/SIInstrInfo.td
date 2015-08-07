@@ -8,6 +8,9 @@
 //===----------------------------------------------------------------------===//
 def isCI : Predicate<"Subtarget->getGeneration() "
                       ">= AMDGPUSubtarget::SEA_ISLANDS">;
+def isCIOnly : Predicate<"Subtarget->getGeneration() =="
+                         "AMDGPUSubtarget::SEA_ISLANDS">,
+  AssemblerPredicate <"FeatureSeaIslands">;
 def isVI : Predicate <
   "Subtarget->getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS">,
   AssemblerPredicate<"FeatureGCN3Encoding">;
@@ -393,7 +396,7 @@ def GDS01MatchClass : GDSBaseMatchClass <"parseDSOff01OptionalOps">;
 class GLCBaseMatchClass <string parser> : AsmOperandClass {
   let Name = "GLC"#parser;
   let PredicateMethod = "isImm";
-  let ParserMethod = parser; 
+  let ParserMethod = parser;
   let RenderMethod = "addImmOperands";
 }
 
@@ -435,6 +438,17 @@ def ClampMatchClass : AsmOperandClass {
   let ParserMethod = "parseVOP3OptionalOps";
   let RenderMethod = "addImmOperands";
 }
+
+class SMRDOffsetBaseMatchClass <string predicate> : AsmOperandClass {
+  let Name = "SMRDOffset"#predicate;
+  let PredicateMethod = predicate;
+  let RenderMethod = "addImmOperands";
+}
+
+def SMRDOffsetMatchClass : SMRDOffsetBaseMatchClass <"isSMRDOffset">;
+def SMRDLiteralOffsetMatchClass : SMRDOffsetBaseMatchClass <
+  "isSMRDLiteralOffset"
+>;
 
 let OperandType = "OPERAND_IMMEDIATE" in {
 
@@ -510,6 +524,16 @@ def ClampMod : Operand <i1> {
   let ParserMatchClass = ClampMatchClass;
 }
 
+def smrd_offset : Operand <i32> {
+  let PrintMethod = "printU32ImmOperand";
+  let ParserMatchClass = SMRDOffsetMatchClass;
+}
+
+def smrd_literal_offset : Operand <i32> {
+  let PrintMethod = "printU32ImmOperand";
+  let ParserMatchClass = SMRDLiteralOffsetMatchClass;
+}
+
 } // End OperandType = "OPERAND_IMMEDIATE"
 
 def VOPDstS64 : VOPDstOperand <SReg_64>;
@@ -527,6 +551,13 @@ def MUBUFAddr64Atomic : ComplexPattern<i64, 5, "SelectMUBUFAddr64">;
 def MUBUFScratch : ComplexPattern<i64, 4, "SelectMUBUFScratch">;
 def MUBUFOffset : ComplexPattern<i64, 6, "SelectMUBUFOffset">;
 def MUBUFOffsetAtomic : ComplexPattern<i64, 4, "SelectMUBUFOffset">;
+
+def SMRDImm   : ComplexPattern<i64, 2, "SelectSMRDImm">;
+def SMRDImm32 : ComplexPattern<i64, 2, "SelectSMRDImm32">;
+def SMRDSgpr  : ComplexPattern<i64, 2, "SelectSMRDSgpr">;
+def SMRDBufferImm   : ComplexPattern<i32, 1, "SelectSMRDBufferImm">;
+def SMRDBufferImm32 : ComplexPattern<i32, 1, "SelectSMRDBufferImm32">;
+def SMRDBufferSgpr  : ComplexPattern<i32, 1, "SelectSMRDBufferSgpr">;
 
 def VOP3Mods0 : ComplexPattern<untyped, 4, "SelectVOP3Mods0">;
 def VOP3NoMods0 : ComplexPattern<untyped, 4, "SelectVOP3NoMods0">;
@@ -717,19 +748,6 @@ class SOP2_Real_vi<sop2 op, string opName, dag outs, dag ins, string asm> :
   let AssemblerPredicates = [isVI];
 }
 
-multiclass SOP2_SELECT_32 <sop2 op, string opName, list<dag> pattern> {
-  def "" : SOP2_Pseudo <opName, (outs SReg_32:$dst),
-    (ins SSrc_32:$src0, SSrc_32:$src1, SCCReg:$scc), pattern>;
-
-  def _si : SOP2_Real_si <op, opName, (outs SReg_32:$dst),
-    (ins SSrc_32:$src0, SSrc_32:$src1, SCCReg:$scc),
-    opName#" $dst, $src0, $src1 [$scc]">;
-
-  def _vi : SOP2_Real_vi <op, opName, (outs SReg_32:$dst),
-    (ins SSrc_32:$src0, SSrc_32:$src1, SCCReg:$scc),
-    opName#" $dst, $src0, $src1 [$scc]">;
-}
-
 multiclass SOP2_m <sop2 op, string opName, dag outs, dag ins, string asm,
                    list<dag> pattern> {
 
@@ -758,8 +776,10 @@ multiclass SOP2_64_32 <sop2 op, string opName, list<dag> pattern> : SOP2_m <
 
 class SOPC_Helper <bits<7> op, RegisterOperand rc, ValueType vt,
                     string opName, PatLeaf cond> : SOPC <
-  op, (outs SCCReg:$dst), (ins rc:$src0, rc:$src1),
-  opName#" $src0, $src1", []>;
+  op, (outs), (ins rc:$src0, rc:$src1),
+  opName#" $src0, $src1", []> {
+  let Defs = [SCC];
+}
 
 class SOPC_32<bits<7> op, string opName, PatLeaf cond = COND_NULL>
   : SOPC_Helper<op, SSrc_32, i32, opName, cond>;
@@ -812,15 +832,20 @@ multiclass SOPK_32 <sopk op, string opName, list<dag> pattern> {
 }
 
 multiclass SOPK_SCC <sopk op, string opName, list<dag> pattern> {
-  def "" : SOPK_Pseudo <opName, (outs SCCReg:$dst),
-    (ins SReg_32:$src0, u16imm:$src1), pattern>;
+  def "" : SOPK_Pseudo <opName, (outs),
+    (ins SReg_32:$src0, u16imm:$src1), pattern> {
+    let Defs = [SCC];
+  }
 
-  let DisableEncoding = "$dst" in {
-    def _si : SOPK_Real_si <op, opName, (outs SCCReg:$dst),
-      (ins SReg_32:$sdst, u16imm:$simm16), opName#" $sdst, $simm16">;
 
-    def _vi : SOPK_Real_vi <op, opName, (outs SCCReg:$dst),
-      (ins SReg_32:$sdst, u16imm:$simm16), opName#" $sdst, $simm16">;
+  def _si : SOPK_Real_si <op, opName, (outs),
+    (ins SReg_32:$sdst, u16imm:$simm16), opName#" $sdst, $simm16"> {
+    let Defs = [SCC];
+  }
+
+  def _vi : SOPK_Real_vi <op, opName, (outs),
+    (ins SReg_32:$sdst, u16imm:$simm16), opName#" $sdst, $simm16"> {
+    let Defs = [SCC];
   }
 }
 
@@ -893,9 +918,15 @@ multiclass SMRD_Helper <bits<5> op, string opName, RegisterClass baseClass,
                         RegisterClass dstClass> {
   defm _IMM : SMRD_m <
     op, opName#"_IMM", 1, (outs dstClass:$dst),
-    (ins baseClass:$sbase, u32imm:$offset),
+    (ins baseClass:$sbase, smrd_offset:$offset),
     opName#" $dst, $sbase, $offset", []
   >;
+
+  def _IMM_ci : SMRD <
+    (outs dstClass:$dst), (ins baseClass:$sbase, smrd_literal_offset:$offset),
+    opName#" $dst, $sbase, $offset", []>, SMRD_IMMe_ci <op> {
+    let AssemblerPredicates = [isCIOnly];
+  }
 
   defm _SGPR : SMRD_m <
     op, opName#"_SGPR", 0, (outs dstClass:$dst),
