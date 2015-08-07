@@ -1369,6 +1369,8 @@ static bool CanSkipVTablePointerInitialization(ASTContext &Context,
 
 // Generates function call for handling object poisoning, passing in
 // references to 'this' and its size as arguments.
+// Disables tail call elimination, to prevent the current stack frame from
+// disappearing from the stack trace.
 static void EmitDtorSanitizerCallback(CodeGenFunction &CGF,
                                       const CXXDestructorDecl *Dtor) {
   const ASTRecordLayout &Layout =
@@ -1383,6 +1385,8 @@ static void EmitDtorSanitizerCallback(CodeGenFunction &CGF,
       llvm::FunctionType::get(CGF.VoidTy, ArgTypes, false);
   llvm::Value *Fn =
       CGF.CGM.CreateRuntimeFunction(FnType, "__sanitizer_dtor_callback");
+
+  CGF.CurFn->addFnAttr("disable-tail-calls", "true");
   CGF.EmitNounwindRuntimeCall(Fn, Args);
 }
 
@@ -1475,7 +1479,8 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     ExitCXXTryStmt(*cast<CXXTryStmt>(Body), true);
 
   // Insert memory-poisoning instrumentation.
-  if (CGM.getCodeGenOpts().SanitizeMemoryUseAfterDtor)
+  if (CGM.getCodeGenOpts().SanitizeMemoryUseAfterDtor
+      && SanOpts.has(SanitizerKind::Memory))
     EmitDtorSanitizerCallback(*this, Dtor);
 }
 

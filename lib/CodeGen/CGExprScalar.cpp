@@ -140,19 +140,18 @@ public:
   /// boolean (i1) truth value.  This is equivalent to "Val != 0".
   Value *EmitConversionToBool(Value *Src, QualType DstTy);
 
-  /// \brief Emit a check that a conversion to or from a floating-point type
-  /// does not overflow.
+  /// Emit a check that a conversion to or from a floating-point type does not
+  /// overflow.
   void EmitFloatConversionCheck(Value *OrigSrc, QualType OrigSrcType,
                                 Value *Src, QualType SrcType,
                                 QualType DstType, llvm::Type *DstTy);
 
-  /// EmitScalarConversion - Emit a conversion from the specified type to the
-  /// specified destination type, both of which are LLVM scalar types.
+  /// Emit a conversion from the specified type to the specified destination
+  /// type, both of which are LLVM scalar types.
   Value *EmitScalarConversion(Value *Src, QualType SrcTy, QualType DstTy);
 
-  /// EmitComplexToScalarConversion - Emit a conversion from the specified
-  /// complex type to the specified destination type, where the destination type
-  /// is an LLVM scalar type.
+  /// Emit a conversion from the specified complex type to the specified
+  /// destination type, where the destination type is an LLVM scalar type.
   Value *EmitComplexToScalarConversion(CodeGenFunction::ComplexPairTy Src,
                                        QualType SrcTy, QualType DstTy);
 
@@ -731,8 +730,8 @@ void ScalarExprEmitter::EmitFloatConversionCheck(Value *OrigSrc,
                 "float_cast_overflow", StaticArgs, OrigSrc);
 }
 
-/// EmitScalarConversion - Emit a conversion from the specified type to the
-/// specified destination type, both of which are LLVM scalar types.
+/// Emit a conversion from the specified type to the specified destination type,
+/// both of which are LLVM scalar types.
 Value *ScalarExprEmitter::EmitScalarConversion(Value *Src, QualType SrcType,
                                                QualType DstType) {
   SrcType = CGF.getContext().getCanonicalType(SrcType);
@@ -884,9 +883,8 @@ Value *ScalarExprEmitter::EmitScalarConversion(Value *Src, QualType SrcType,
   return Res;
 }
 
-/// EmitComplexToScalarConversion - Emit a conversion from the specified complex
-/// type to the specified destination type, where the destination type is an
-/// LLVM scalar type.
+/// Emit a conversion from the specified complex type to the specified
+/// destination type, where the destination type is an LLVM scalar type.
 Value *ScalarExprEmitter::
 EmitComplexToScalarConversion(CodeGenFunction::ComplexPairTy Src,
                               QualType SrcTy, QualType DstTy) {
@@ -1003,14 +1001,10 @@ Value *ScalarExprEmitter::VisitShuffleVectorExpr(ShuffleVectorExpr *E) {
     }
 
     llvm::VectorType *MTy = cast<llvm::VectorType>(Mask->getType());
-    llvm::Constant* EltMask;
-
-    EltMask = llvm::ConstantInt::get(MTy->getElementType(),
-                                     llvm::NextPowerOf2(LHSElts-1)-1);
 
     // Mask off the high bits of each shuffle index.
-    Value *MaskBits = llvm::ConstantVector::getSplat(MTy->getNumElements(),
-                                                     EltMask);
+    Value *MaskBits =
+        llvm::ConstantInt::get(MTy, llvm::NextPowerOf2(LHSElts - 1) - 1);
     Mask = Builder.CreateAnd(Mask, MaskBits, "mask");
 
     // newv = undef
@@ -1166,6 +1160,16 @@ static llvm::Constant *getMaskElt(llvm::ShuffleVectorInst *SVI, unsigned Idx,
   return llvm::ConstantInt::get(I32Ty, Off+MV);
 }
 
+static llvm::Constant *getAsInt32(llvm::ConstantInt *C, llvm::Type *I32Ty) {
+  if (C->getBitWidth() != 32) {
+      assert(llvm::ConstantInt::isValueValidForType(I32Ty,
+                                                    C->getZExtValue()) &&
+             "Index operand too large for shufflevector mask!");
+      return llvm::ConstantInt::get(I32Ty, C->getZExtValue());
+  }
+  return C;
+}
+
 Value *ScalarExprEmitter::VisitInitListExpr(InitListExpr *E) {
   bool Ignore = TestAndClearIgnoreResultAssign();
   (void)Ignore;
@@ -1216,7 +1220,8 @@ Value *ScalarExprEmitter::VisitInitListExpr(InitListExpr *E) {
           Value *LHS = nullptr, *RHS = nullptr;
           if (CurIdx == 0) {
             // insert into undef -> shuffle (src, undef)
-            Args.push_back(C);
+            // shufflemask must use an i32
+            Args.push_back(getAsInt32(C, CGF.Int32Ty));
             Args.resize(ResElts, llvm::UndefValue::get(CGF.Int32Ty));
 
             LHS = EI->getVectorOperand();
@@ -3454,8 +3459,8 @@ Value *ScalarExprEmitter::VisitAtomicExpr(AtomicExpr *E) {
 //                         Entry Point into this File
 //===----------------------------------------------------------------------===//
 
-/// EmitScalarExpr - Emit the computation of the specified expression of scalar
-/// type, ignoring the result.
+/// Emit the computation of the specified expression of scalar type, ignoring
+/// the result.
 Value *CodeGenFunction::EmitScalarExpr(const Expr *E, bool IgnoreResultAssign) {
   assert(E && hasScalarEvaluationKind(E->getType()) &&
          "Invalid scalar expression to emit");
@@ -3464,8 +3469,8 @@ Value *CodeGenFunction::EmitScalarExpr(const Expr *E, bool IgnoreResultAssign) {
       .Visit(const_cast<Expr *>(E));
 }
 
-/// EmitScalarConversion - Emit a conversion from the specified type to the
-/// specified destination type, both of which are LLVM scalar types.
+/// Emit a conversion from the specified type to the specified destination type,
+/// both of which are LLVM scalar types.
 Value *CodeGenFunction::EmitScalarConversion(Value *Src, QualType SrcTy,
                                              QualType DstTy) {
   assert(hasScalarEvaluationKind(SrcTy) && hasScalarEvaluationKind(DstTy) &&
@@ -3473,9 +3478,8 @@ Value *CodeGenFunction::EmitScalarConversion(Value *Src, QualType SrcTy,
   return ScalarExprEmitter(*this).EmitScalarConversion(Src, SrcTy, DstTy);
 }
 
-/// EmitComplexToScalarConversion - Emit a conversion from the specified complex
-/// type to the specified destination type, where the destination type is an
-/// LLVM scalar type.
+/// Emit a conversion from the specified complex type to the specified
+/// destination type, where the destination type is an LLVM scalar type.
 Value *CodeGenFunction::EmitComplexToScalarConversion(ComplexPairTy Src,
                                                       QualType SrcTy,
                                                       QualType DstTy) {

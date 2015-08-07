@@ -148,8 +148,8 @@ Formatting of Diagnostics
 
 Clang aims to produce beautiful diagnostics by default, particularly for
 new users that first come to Clang. However, different people have
-different preferences, and sometimes Clang is driven by another program
-that wants to parse simple and consistent output, not a person. For
+different preferences, and sometimes Clang is driven not by a human,
+but by a program that wants consistent and easily parsable output. For
 these cases, Clang provides a wide range of options to control the exact
 output format of the diagnostics that it generates.
 
@@ -1157,6 +1157,13 @@ are listed below.
    efficient model can be used. The TLS model can be overridden per
    variable using the ``tls_model`` attribute.
 
+.. option:: -femulated-tls
+
+   Select emulated TLS model, which overrides all -ftls-model choices.
+
+   In emulated TLS mode, all access to TLS variables are converted to
+   calls to __emutls_get_address in the runtime library.
+
 .. option:: -mhwdiv=[values]
 
    Select the ARM modes (arm or thumb) that support hardware division
@@ -1527,6 +1534,19 @@ with respect to profile creation and use.
   profile file, it reads from that file. If ``pathname`` is a directory name,
   it reads from ``pathname/default.profdata``.
 
+Disabling Instrumentation
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+In certain situations, it may be useful to disable profile generation or use
+for specific files in a build, without affecting the main compilation flags
+used for the other files in the project.
+
+In these cases, you can use the flag ``-fno-profile-instr-generate`` (or
+``-fno-profile-generate``) to disable profile generation, and
+``-fno-profile-instr-use`` (or ``-fno-profile-use``) to disable profile use.
+
+Note that these flags should appear after the corresponding profile
+flags to have an effect.
 
 Controlling Size of Debug Information
 -------------------------------------

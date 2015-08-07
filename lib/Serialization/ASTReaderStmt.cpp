@@ -1845,7 +1845,10 @@ void OMPClauseReader::VisitOMPScheduleClause(OMPScheduleClause *C) {
   C->setCommaLoc(Reader->ReadSourceLocation(Record, Idx));
 }
 
-void OMPClauseReader::VisitOMPOrderedClause(OMPOrderedClause *) {}
+void OMPClauseReader::VisitOMPOrderedClause(OMPOrderedClause *C) {
+  C->setNumForLoops(Reader->Reader.ReadSubExpr());
+  C->setLParenLoc(Reader->ReadSourceLocation(Record, Idx));
+}
 
 void OMPClauseReader::VisitOMPNowaitClause(OMPNowaitClause *) {}
 
@@ -2107,6 +2110,10 @@ void ASTStmtReader::VisitOMPLoopDirective(OMPLoopDirective *D) {
   for (unsigned i = 0; i < CollapsedNum; ++i)
     Sub.push_back(Reader.ReadSubExpr());
   D->setCounters(Sub);
+  Sub.clear();
+  for (unsigned i = 0; i < CollapsedNum; ++i)
+    Sub.push_back(Reader.ReadSubExpr());
+  D->setPrivateCounters(Sub);
   Sub.clear();
   for (unsigned i = 0; i < CollapsedNum; ++i)
     Sub.push_back(Reader.ReadSubExpr());
