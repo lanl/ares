@@ -104,10 +104,6 @@ namespace ares{
 
     virtual HLIRNode* copy() const = 0;
 
-    virtual std::string intrinsic() const{
-      HLIR_ERROR("invalid intrinsic");
-    }
-
     std::string str() const{
       std::stringstream ostr;
       output(ostr);
@@ -225,6 +221,7 @@ namespace ares{
     virtual bool hasValue() const override{
       return val_ != std::numeric_limits<int64_t>::max();
     }
+
   };
 
   class HLIRFloating : public HLIRScalar<double>{
@@ -467,6 +464,10 @@ namespace ares{
 
     static HLIRValue* create(llvm::Value* value){
       return new HLIRValue(value);
+    }
+    
+    static HLIRInstruction* create(llvm::Instruction* value){
+      return new HLIRInstruction(value);
     }
 
     static bool isSymbol(const char* str){
@@ -719,6 +720,10 @@ namespace ares{
         return *vector_.get_(index_); 
       }
 
+      HLIRNode* operator->(){
+        return vector_.get_(index_);
+      }
+
     private:
       Proxy_(HLIRVector& vector, size_t index)
         : vector_(vector),
@@ -837,7 +842,152 @@ namespace ares{
     }
   };
 
-  class HLIRModule;
+  class HLIRConstruct;
+  class HLIRParallelFor;
+  class HLIRTask;
+
+  class HLIRModule : public HLIRMap{
+  public:
+    llvm::Type* voidTy;
+    llvm::IntegerType* boolTy;
+    llvm::IntegerType* i8Ty;
+    llvm::IntegerType* i16Ty;
+    llvm::IntegerType* i32Ty;
+    llvm::IntegerType* i64Ty;
+    llvm::Type* floatTy;
+    llvm::Type* doubleTy;
+    llvm::PointerType* voidPtrTy;
+
+    static HLIRModule* getModule(llvm::Module* module);
+
+    void setName(const HLIRString& name){
+      (*this)["name"] = name;
+    }
+
+    auto& name() const{
+      return get<HLIRString>("name");
+    }
+
+    void setVersion(const HLIRString& version){
+      (*this)["version"] = version;
+    }
+
+    auto& version() const{
+      return get<HLIRString>("version");
+    }
+
+    void setLanguage(const HLIRString& language){
+      (*this)["language"] = language;
+    }
+
+    auto& language() const{
+      return get<HLIRString>("language");
+    }
+
+    llvm::Function* getIntrinsic(const std::string& name){
+      std::string fullName = "hlir." + name;
+
+      auto f = module_->getFunction(fullName);
+      if(f){
+        return f;
+      }
+
+      f = llvm::Function::Create(llvm::FunctionType::get(voidTy, false),
+                                 llvm::GlobalValue::ExternalLinkage,
+                                 fullName, module_);
+      return f;
+    }
+
+    llvm::Instruction* createNoOp(){
+      return builder_.CreateAlloca(boolTy, nullptr);
+    }
+
+    HLIRParallelFor* createParallelFor();
+
+    HLIRTask* createTask();
+
+    llvm::Module* module(){
+      return module_;
+    }
+
+    llvm::LLVMContext& context(){
+      return context_;
+    }
+
+    auto& builder(){
+      return builder_;
+    }
+
+    llvm::Function*
+    getFunction(const std::string& funcName,
+                const std::vector<llvm::Type*>& argTypes,
+                llvm::Type* retType=nullptr){
+  
+      llvm::Function* func = module_->getFunction(funcName);
+  
+      if(func){
+        return func;
+      }
+      
+      llvm::FunctionType* funcType =
+      llvm::FunctionType::get(retType ? retType : voidTy,
+                              argTypes, false);
+      
+      func =
+      llvm::Function::Create(funcType,
+                             llvm::Function::ExternalLinkage,
+                             funcName,
+                             module_);
+      
+      return func;
+    }
+
+    bool lowerToIR_();
+
+    void lowerParallelFor_(HLIRParallelFor* pfor);
+
+    void lowerTask_(HLIRTask* task);
+
+    llvm::Value* toInt8(const HLIRInteger& i){
+      return llvm::ConstantInt::get(i8Ty, i);
+    }
+
+    llvm::Value* toInt16(const HLIRInteger& i){
+      return llvm::ConstantInt::get(i16Ty, i);
+    }
+
+    llvm::Value* toInt32(const HLIRInteger& i){
+      return llvm::ConstantInt::get(i32Ty, i);
+    }
+
+    llvm::Value* toInt64(const HLIRInteger& i){
+      return llvm::ConstantInt::get(i64Ty, i);
+    }
+
+  private:
+    HLIRModule(llvm::Module* module)
+      : module_(module),
+        context_(module_->getContext()),
+        builder_(context_){
+
+      voidTy = llvm::Type::getVoidTy(context_);
+      boolTy = llvm::Type::getInt1Ty(context_);
+      i8Ty = llvm::Type::getInt8Ty(context_);
+      i16Ty = llvm::Type::getInt16Ty(context_);
+      i32Ty = llvm::Type::getInt32Ty(context_);
+      i64Ty = llvm::Type::getInt64Ty(context_);
+      floatTy = llvm::Type::getFloatTy(context_);
+      doubleTy = llvm::Type::getDoubleTy(context_);
+
+      voidPtrTy = llvm::PointerType::get(i8Ty, 0);
+    }
+
+    llvm::Module* module_;
+    llvm::LLVMContext& context_;
+    llvm::IRBuilder<> builder_;
+
+    std::vector<HLIRConstruct*> constructs_;
+  };
 
   class HLIRTaskParam : public HLIRMap{
   public:
@@ -873,9 +1023,29 @@ namespace ares{
 
   };
 
-  class HLIRTask : public HLIRMap{
+  class HLIRConstruct : public HLIRMap{
   public:
-    HLIRTask(){
+    HLIRConstruct(HLIRModule* module)
+      : module_(module){}
+
+    virtual std::string intrinsic() const{
+      HLIR_ERROR("invalid intrinsic");
+    }
+
+    template<bool P, class C, class I>
+    void insert(llvm::IRBuilder<P, C, I>& builder){
+      (*this)["marker"] = 
+        builder.CreateCall(module_->getIntrinsic(intrinsic()));
+    }
+
+  protected:
+    HLIRModule* module_;
+  };
+
+  class HLIRTask : public HLIRConstruct{
+  public:
+    HLIRTask(HLIRModule* module)
+      : HLIRConstruct(module){
       auto ret = new HLIRTaskParam;
       ret->setRead(false);
       ret->setWrite(true);
@@ -896,44 +1066,58 @@ namespace ares{
       return *param;
     }
 
-    void setFunction(const HLIRFunction& func){
-      (*this)["function"] = func;
-    }
+    void setFunction(const HLIRFunction& func);
 
     auto& function() const{
       return get<HLIRFunction>("function");
     }
+
+    auto& wrapperFunction() const{
+      return get<HLIRFunction>("wrapperFunction");
+    }
+
+    void setName(const HLIRString& name){
+      (*this)["name"] = name;
+    }
+
+    auto& name() const{
+      return get<HLIRString>("name");
+    }
   };
 
-  class HLIRFuture : public HLIRMap{
+  class HLIRFuture : public HLIRConstruct{
   public:
-    HLIRFuture(HLIRValue& value){}
+    HLIRFuture(HLIRModule* module, HLIRValue& value)
+      : HLIRConstruct(module){}
 
     void await(){}
 
     HLIRValue await(const HLIRValue& microsends){}
   };
 
-  class HLIRBuffer : public HLIRMap{
+  class HLIRBuffer : public HLIRConstruct{
   public:
-    HLIRBuffer(){}
+    HLIRBuffer(HLIRModule* module)
+      : HLIRConstruct(module){}
 
     void init(const HLIRValue& buffer,
               const HLIRValue& size){}
   };
 
-  class HLIRTeam : public HLIRMap{
+  class HLIRTeam : public HLIRConstruct{
   public:
-    HLIRTeam(){}
+    HLIRTeam(HLIRModule* module)
+      : HLIRConstruct(module){}
   };
 
-  class HLIRSend : public HLIRMap{
+  class HLIRSend : public HLIRConstruct{
   public:
     virtual std::string intrinsic() const override{
       return "send";
     }
 
-    HLIRSend(){}
+    HLIRSend(HLIRModule* module)
+      : HLIRConstruct(module){}
 
     void setFuture(const HLIRFuture& future){
       (*this)["future"] = future;
@@ -960,13 +1144,14 @@ namespace ares{
     }
   };
 
-  class HLIRReceive : public HLIRMap{
+  class HLIRReceive : public HLIRConstruct{
   public:
     virtual std::string intrinsic() const override{
       return "receive";
     }
 
-    HLIRReceive(){}
+    HLIRReceive(HLIRModule* module)
+      : HLIRConstruct(module){}
 
     void setFuture(const HLIRFuture& future){
       (*this)["future"] = future;
@@ -993,13 +1178,14 @@ namespace ares{
     }
   };
 
-  class HLIRBarrier : public HLIRMap{
+  class HLIRBarrier : public HLIRConstruct{
   public:
     virtual std::string intrinsic() const override{
       return "barrier";
     }
 
-    HLIRBarrier(){}
+    HLIRBarrier(HLIRModule* module)
+      : HLIRConstruct(module){}
 
     void setTeam(const HLIRTeam& team){
       (*this)["team"] = team;
@@ -1010,7 +1196,7 @@ namespace ares{
     }
   };
 
-  class HLIRParallelFor : public HLIRMap{
+  class HLIRParallelFor : public HLIRConstruct{
   public:
     virtual std::string intrinsic() const override{
       return "parallel_for";
@@ -1042,111 +1228,19 @@ namespace ares{
       (*this)["range"] = HLIRVector() << start << end;
     }
 
+    auto& range() const{
+      return get<HLIRVector>("range");
+    }
+
   private:
     friend class HLIRModule;
+    friend class HLIRPass;
 
     HLIRParallelFor(HLIRModule* module);
 
-    HLIRModule* module_;
-  };
-
-  class HLIRModule : public HLIRMap{
-  public:
-    llvm::Type* voidTy;
-    llvm::IntegerType* boolTy;
-    llvm::IntegerType* i8Ty;
-    llvm::IntegerType* i16Ty;
-    llvm::IntegerType* i32Ty;
-    llvm::IntegerType* i64Ty;
-    llvm::Type* floatTy;
-    llvm::Type* doubleTy;
-
-    static HLIRModule* getModule(const std::string& name);
-
-    static HLIRModule* getModule(llvm::Module* module);
-
-    static HLIRModule* createModule(llvm::Module* module);
-
-    void setName(const HLIRString& name){
-      (*this)["name"] = name;
+    auto& callMarker() const{
+      return get<HLIRInstruction>("callMarker");
     }
-
-    auto& name() const{
-      return get<HLIRString>("name");
-    }
-
-    void setVersion(const HLIRString& version){
-      (*this)["version"] = version;
-    }
-
-    auto& version() const{
-      return get<HLIRString>("version");
-    }
-
-    void setLanguage(const HLIRString& language){
-      (*this)["language"] = language;
-    }
-
-    auto& language() const{
-      return get<HLIRString>("language");
-    }
-
-    template<bool P, class C, class I>
-    void insert(HLIRNode* node, llvm::IRBuilder<P, C, I>& builder){
-      builder.CreateCall(getIntrinsic(node->intrinsic()));
-    }
-
-    llvm::Function* getIntrinsic(const std::string& name){
-      std::string fullName = "hlir." + name;
-
-      auto f = module_->getFunction(fullName);
-      if(f){
-        return f;
-      }
-
-      f = llvm::Function::Create(llvm::FunctionType::get(voidTy, false),
-                                 llvm::GlobalValue::ExternalLinkage,
-                                 fullName, module_);
-      return f;
-    }
-
-    llvm::Instruction* createNoOp(){
-      return builder_.CreateAlloca(boolTy, nullptr);
-    }
-
-    HLIRParallelFor* createParallelFor();
-
-    llvm::Module* module(){
-      return module_;
-    }
-
-    llvm::LLVMContext& context(){
-      return context_;
-    }
-
-    auto& builder(){
-      return builder_;
-    }
-
-  private:
-    HLIRModule(llvm::Module* module)
-      : module_(module),
-        context_(module_->getContext()),
-        builder_(context_){
-
-      voidTy = llvm::Type::getVoidTy(context_);
-      boolTy = llvm::Type::getInt1Ty(context_);
-      i8Ty = llvm::Type::getInt8Ty(context_);
-      i16Ty = llvm::Type::getInt16Ty(context_);
-      i32Ty = llvm::Type::getInt32Ty(context_);
-      i64Ty = llvm::Type::getInt64Ty(context_);
-      floatTy = llvm::Type::getFloatTy(context_);
-      doubleTy = llvm::Type::getDoubleTy(context_);
-    }
-    
-    llvm::Module* module_;
-    llvm::LLVMContext& context_;
-    llvm::IRBuilder<> builder_;
   };
 
 } // namespace ares

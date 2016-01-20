@@ -33,6 +33,11 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Operator.h"
+
+// +====== ares =========================
+#include "hlir/HLIR.h"
+// ======================================
+
 using namespace clang;
 using namespace CodeGen;
 
@@ -691,6 +696,16 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
         }
     } else if (!FD->hasAttr<AlwaysInlineAttr>())
       Fn->addFnAttr(llvm::Attribute::NoInline);
+    
+    if(FD->isTask()){
+      using namespace ares;
+
+      HLIRModule* module = HLIRModule::getModule(&CGM.getModule());
+
+      HLIRTask* task = module->createTask();
+      task->setFunction(Fn);
+    }
+    // =========
   }
 
   if (getLangOpts().OpenCL) {

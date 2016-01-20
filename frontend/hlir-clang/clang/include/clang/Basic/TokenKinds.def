@@ -327,6 +327,10 @@ KEYWORD(using                       , KEYCXX)
 KEYWORD(virtual                     , KEYCXX)
 KEYWORD(wchar_t                     , WCHARSUPPORT)
 
+// +=== ares
+KEYWORD(task                        , KEYCXX)
+// === ares
+
 // C++ 2.5p2: Alternative Representations.
 CXX_KEYWORD_OPERATOR(and     , ampamp)
 CXX_KEYWORD_OPERATOR(and_eq  , ampequal)

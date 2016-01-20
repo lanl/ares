@@ -91,10 +91,6 @@ class CGCUDARuntime;
 class BlockFieldFlags;
 class FunctionArgList;
 class CoverageMappingModuleGen;
-
-// +===== ares ============
-class CGIdeasRuntime;
-// ========================
   
 struct OrderGlobalInits {
   unsigned int priority;
@@ -297,10 +293,6 @@ private:
   RREntrypoints *RRData;
   std::unique_ptr<llvm::IndexedInstrProfReader> PGOReader;
   InstrProfStats PGOStats;
-
-  // +===== ares ======================
-  CGIdeasRuntime* IdeasRuntime;
-  // ==================================
   
   // A set of references that have only been seen via a weakref so far. This is
   // used to remove the weak of the reference if we ever see a direct reference
@@ -456,10 +448,6 @@ private:
   void createOpenCLRuntime();
   void createOpenMPRuntime();
   void createCUDARuntime();
-
-  // ===== ares ==========================
-  void createIdeasRuntime();
-  // ======================================
   
   bool isTriviallyRecursive(const FunctionDecl *F);
   bool shouldEmitFunction(GlobalDecl GD);
@@ -541,13 +529,6 @@ public:
     assert(CUDARuntime != nullptr);
     return *CUDARuntime;
   }
-
-  // +===== ares ================
-  CGIdeasRuntime &getIdeasRuntime() {
-    assert(IdeasRuntime != nullptr);
-    return *IdeasRuntime;
-  }
-  // ============================
   
   ARCEntrypoints &getARCEntrypoints() const {
     assert(getLangOpts().ObjCAutoRefCount && ARCData != nullptr);

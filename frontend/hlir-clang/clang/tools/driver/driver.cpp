@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-// +===== ideas ========================================================+
+// +===== ares ========================================================+
 #include <unistd.h>
 #include <iostream>
 #include <sstream>
@@ -359,7 +359,7 @@ int main(int argc_, const char **argv_) {
     MarkEOLs = false;
   llvm::cl::ExpandResponseFiles(Saver, Tokenizer, argv, MarkEOLs);
 
-  // +===== ideas ===========================================================+
+  // +===== ares ===========================================================+
   //-debug flag
   for (int i = 2, size = argv.size(); i < size; ++i) {
     if ( argv[i] != NULL && StringRef(argv[i]) == "-debug") {

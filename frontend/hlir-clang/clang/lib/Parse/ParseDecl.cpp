@@ -3186,6 +3186,12 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       isInvalid = DS.setFunctionSpecNoreturn(Loc, PrevSpec, DiagID);
       break;
 
+    // +==== ares
+    case tok::kw_task:
+      isInvalid = DS.setFunctionSpecTask(Loc, PrevSpec, DiagID);
+      break;
+    // ==========
+
     // alignment-specifier
     case tok::kw__Alignas:
       if (!getLangOpts().C11)

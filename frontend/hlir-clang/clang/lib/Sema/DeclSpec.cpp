@@ -855,6 +855,16 @@ bool DeclSpec::setFunctionSpecNoreturn(SourceLocation Loc,
   return false;
 }
 
+// +===== ares
+
+bool DeclSpec::setFunctionSpecTask(SourceLocation Loc, const char *&PrevSpec,
+                                          unsigned &DiagID) {
+  FS_task_specified = true;
+  return false;
+}
+
+// ==========
+
 bool DeclSpec::SetFriendSpec(SourceLocation Loc, const char *&PrevSpec,
                              unsigned &DiagID) {
   if (Friend_specified) {

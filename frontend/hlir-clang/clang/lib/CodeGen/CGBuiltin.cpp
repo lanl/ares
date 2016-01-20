@@ -1775,12 +1775,6 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
       return RValue::get(llvm::ConstantExpr::getBitCast(GV, CGM.Int8PtrTy));
     break;
   }
-  // +===== ares ================
-  case Builtin::BIideas_test: {
-    llvm::errs() << "got it...\n";
-    return RValue::get(ConstantInt::get(Int32Ty, 1));
-  }
-  // +============================
   }
 
   // If this is an alias for a lib function (e.g. __builtin_sin), emit

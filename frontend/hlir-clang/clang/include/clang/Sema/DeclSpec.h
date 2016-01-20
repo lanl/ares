@@ -352,6 +352,10 @@ private:
   unsigned FS_explicit_specified : 1;
   unsigned FS_noreturn_specified : 1;
 
+  // +===== ares
+  unsigned FS_task_specified : 1;
+  // ===========
+
   // friend-specifier
   unsigned Friend_specified : 1;
 
@@ -430,6 +434,9 @@ public:
       FS_virtual_specified(false),
       FS_explicit_specified(false),
       FS_noreturn_specified(false),
+      // +===== ares
+      FS_task_specified(false),
+      // ===========
       Friend_specified(false),
       Constexpr_specified(false),
       Concept_specified(false),
@@ -562,6 +569,12 @@ public:
   bool isNoreturnSpecified() const { return FS_noreturn_specified; }
   SourceLocation getNoreturnSpecLoc() const { return FS_noreturnLoc; }
 
+  // +===== ares
+  bool isTaskSpecified() const{
+    return FS_task_specified;
+  }
+  // ===========
+
   void ClearFunctionSpecs() {
     FS_inline_specified = false;
     FS_inlineLoc = SourceLocation();
@@ -673,6 +686,11 @@ public:
                                unsigned &DiagID);
   bool setFunctionSpecNoreturn(SourceLocation Loc, const char *&PrevSpec,
                                unsigned &DiagID);
+
+  // +===== ares
+  bool setFunctionSpecTask(SourceLocation Loc, const char *&PrevSpec,
+                           unsigned &DiagID);
+  // ===========
 
   bool SetFriendSpec(SourceLocation Loc, const char *&PrevSpec,
                      unsigned &DiagID);

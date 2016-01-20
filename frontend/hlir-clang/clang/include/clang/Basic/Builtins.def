@@ -1249,9 +1249,6 @@ BUILTIN(__builtin___get_unsafe_stack_ptr, "v*", "Fn")
 BUILTIN(__builtin_nontemporal_store, "v.", "t")
 BUILTIN(__builtin_nontemporal_load, "v.", "t")
 
-// +===== ares ==================
-BUILTIN(ideas_test, "v.", "t")
-
 #undef BUILTIN
 #undef LIBBUILTIN
 #undef LANGBUILTIN

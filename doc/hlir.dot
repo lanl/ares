@@ -1,0 +1,13 @@
+digraph G {
+   HLIRModule -> name;
+   name [shape=box, style=filled, color=gray, label="name: main.cpp"];
+   HLIRModule -> "parallel for";
+   "parallel for" -> range1;
+   "parallel for" -> index1;
+   "parallel for" -> insertion1;
+   "parallel for" -> body1;
+   range1 [shape=box, style=filled, color=gray, label="range: [0, 15]"];
+   index1 [shape=box, style=filled, color=gray, label="index: ..."];
+   insertion1 [shape=box, style=filled, color=gray, label="insertion: ..."];
+   body1 [align=left, shape=box, style=filled, color=gray, label="body: <<<function:\ldefine void @hlir.parallel_for.body(i32 %i) {\lentry:\l%index.ptr = alloca i32\lstore i32 %i, i32* %index.ptr\l%0 = load i32, i32* %index.ptr, align 8\l%call = call i32 (i8*, ...) @printf(i8* getelementptr\l inbounds ([19 x i8], [19 x i8]* @.str, i32 0, i32 0), i32 %0)\lret void\l}\l"];
+}

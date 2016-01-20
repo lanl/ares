@@ -136,7 +136,7 @@ public:
   
   const LambdaExpr* GetLambda(const Expr* E);
   
-  Address ideasAddr(llvm::Value* v){
+  Address aresAddr(llvm::Value* v){
     return Address(v, getPointerAlign());
   }
   

@@ -6933,6 +6933,7 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
                                  D.getLocStart(), NameInfo, R, 
                                  TInfo, SC, isInline, 
                                  HasPrototype, false);
+
     if (D.isInvalidType())
       NewFD->setInvalidDecl();
 
@@ -7043,10 +7044,18 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
     // Determine whether the function was written with a
     // prototype. This true when:
     //   - we're in C++ (where every function has a prototype),
-    return FunctionDecl::Create(SemaRef.Context, DC,
-                                D.getLocStart(),
-                                NameInfo, R, TInfo, SC, isInline,
-                                true/*HasPrototype*/, isConstexpr);
+    auto fd = FunctionDecl::Create(SemaRef.Context, DC,
+                                   D.getLocStart(),
+                                   NameInfo, R, TInfo, SC, isInline,
+                                   true/*HasPrototype*/, isConstexpr);
+
+    // +=== ares
+    if(D.getDeclSpec().isTaskSpecified()){
+      fd->setTask(true);
+    }
+    // =========
+
+    return fd;
   }
 }
 

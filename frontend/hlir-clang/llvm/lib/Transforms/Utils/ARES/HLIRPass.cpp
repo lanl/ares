@@ -2,9 +2,9 @@
  * ###########################################################################
  * Copyright (c) 2015, Los Alamos National Security, LLC.
  * All rights reserved.
- * 
- *  Copyright 2010. Los Alamos National Security, LLC. This software was
- *  produced under U.S. Government contract DE-AC52-06NA25396 for Los
+ *
+ *  Copyright 2015. Los Alamos National Security, LLC. This software was
+ *  produced under U.S. Government contract ??? (LA-CC-15-056) for Los
  *  Alamos National Laboratory (LANL), which is operated by Los Alamos
  *  National Security, LLC for the U.S. Department of Energy. The
  *  U.S. Government has rights to use, reproduce, and distribute this
@@ -20,10 +20,10 @@
  *
  *    * Redistributions of source code must retain the above copyright
  *      notice, this list of conditions and the following disclaimer.
- * 
+ *
  *    * Redistributions in binary form must reproduce the above
  *      copyright notice, this list of conditions and the following
- *      disclaimer in the documentation and/or other materials provided 
+ *      disclaimer in the documentation and/or other materials provided
  *      with the distribution.
  *
  *    * Neither the name of Los Alamos National Security, LLC, Los
@@ -31,7 +31,7 @@
  *      names of its contributors may be used to endorse or promote
  *      products derived from this software without specific prior
  *      written permission.
- * 
+ *
  *  THIS SOFTWARE IS PROVIDED BY LOS ALAMOS NATIONAL SECURITY, LLC AND
  *  CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
  *  INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
@@ -45,79 +45,94 @@
  *  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
  *  OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  *  SUCH DAMAGE.
- * ########################################################################### 
- * 
+ * ###########################################################################
+ *
  * Notes
  *
- * ##### 
- */ 
+ * #####
+ */
 
-#include "CGIdeasRuntime.h"
-#include "CodeGenFunction.h"
+#include "llvm/Transforms/ARES/HLIRPass.h"
+
+#include <iostream>
+#include <memory>
+
+#include "llvm/ADT/Triple.h"
+#include "llvm/CodeGen/CommandFlags.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/IR/IRPrintingPasses.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IRReader/IRReader.h"
+#include "llvm/MC/SubtargetFeature.h"
+#include "llvm/Pass.h"
+#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/FormattedStream.h"
+#include "llvm/Support/Host.h"
+#include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/PluginLoader.h"
+#include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Support/Signals.h"
+#include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Analysis/Passes.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Verifier.h"
+#include "llvm/Transforms/Utils/Cloning.h"
+
+#include "hlir/HLIR.h"
 
 using namespace std;
-using namespace clang;
-using namespace CodeGen;
 using namespace llvm;
+using namespace ares;
 
-CGIdeasRuntime::CGIdeasRuntime(CodeGenModule& CGM) : CGM(CGM){
-  llvm::LLVMContext& C = CGM.getLLVMContext();
- 
-  Int1Ty = llvm::IntegerType::getInt1Ty(C);
-  Int8Ty = llvm::IntegerType::getInt8Ty(C);
-  Int32Ty = llvm::IntegerType::getInt32Ty(C);
-  Int64Ty = llvm::IntegerType::getInt64Ty(C);
-  FloatTy = llvm::Type::getFloatTy(C);
-  DoubleTy = llvm::Type::getDoubleTy(C);
-  VoidTy = llvm::Type::getVoidTy(C);
-  VoidPtrTy = PointerTy(Int8Ty);
-  StringTy = PointerTy(Int8Ty);
-  
-  TypeVec params = {VoidPtrTy, VoidPtrTy};
-  QueueFuncTy = llvm::FunctionType::get(VoidTy, params, false);
-}
+namespace{
 
-CGIdeasRuntime::~CGIdeasRuntime(){}
+typedef vector<Type*> TypeVec;
+typedef vector<Value*> ValueVec;
+typedef vector<string> StringVec;
 
-Value* CGIdeasRuntime::GetNull(llvm::Type* T){
-  return ConstantPointerNull::get(PointerTy(T));
-}
+class HLIRPass : public ModulePass{
+public:
+  static char ID;
 
-llvm::PointerType* CGIdeasRuntime::PointerTy(llvm::Type* elementType){
-  return llvm::PointerType::get(elementType, 0);
-}
+  HLIRPass() : ModulePass(ID){}
 
-llvm::Function*
-CGIdeasRuntime::GetFunc(const std::string& funcName,
-                           const TypeVec& argTypes,
-                           llvm::Type* retType){
+  void getAnalysisUsage(AnalysisUsage& AU) const override{}
 
-  llvm::LLVMContext& C = CGM.getLLVMContext();
-  
-  llvm::Function* func = CGM.getModule().getFunction(funcName);
-  
-  if(!func){
-    llvm::FunctionType* funcType =
-    llvm::FunctionType::get(retType == 0 ?
-                            llvm::Type::getVoidTy(C) : retType,
-                            argTypes, false);
-    
-    func =
-    llvm::Function::Create(funcType,
-                           llvm::Function::ExternalLinkage,
-                           funcName,
-                           &CGM.getModule());
+  const char *getPassName() const {
+    return "HLIRPass";
   }
-  
-  return func;
-}
 
-llvm::Function*
-CGIdeasRuntime::QueueFuncFunc(){
-  return GetFunc("__ideas_queue_func", {PointerTy(QueueFuncTy), Int32Ty});
-}
+  bool runOnModule(Module& M) override{
+    HLIRModule* module = HLIRModule::getModule(&M);
+    if(module){
+      return module->lowerToIR_();
+    }
+    
+    return false;
+  }
+};
 
-llvm::Function*
-CGIdeasRuntime::FreeFuncArgFunc(){
-  return GetFunc("__ideas_free_func_arg", {VoidPtrTy});
+char HLIRPass::ID;
+
+} // end namespace
+
+ModulePass* llvm::createHLIRPass(){
+  return new HLIRPass;
 }

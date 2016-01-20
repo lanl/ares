@@ -45,7 +45,7 @@ void CodeGenFunction::EmitParallelFor(const CallExpr* E){
   auto& B = Builder;
   LLVMContext& C = getLLVMContext();
   
-  HLIRModule* mod = HLIRModule::createModule(&CGM.getModule());
+  HLIRModule* mod = HLIRModule::getModule(&CGM.getModule());
 
   mod->setName("Test");
   mod->setLanguage("C++");
@@ -86,9 +86,11 @@ void CodeGenFunction::EmitParallelFor(const CallExpr* E){
   
   pfor->setRange(0, end);
   
-  mod->insert(pfor, B);
+  pfor->insert(B);
   
   std::cout << *mod << std::endl;
+  
+  CGM.getModule().dump();
 }
 
 const LambdaExpr* CodeGenFunction::GetLambda(const Expr* E){

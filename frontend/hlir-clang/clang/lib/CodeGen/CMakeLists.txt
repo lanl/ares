@@ -76,10 +76,6 @@ add_clang_library(clangCodeGen
   SanitizerMetadata.cpp
   TargetInfo.cpp
 
-  # +===== ares ==============
-  ideas/CGIdeasRuntime.cpp
-  # ====== === ==============
-
   DEPENDS
   ${codegen_deps}
 

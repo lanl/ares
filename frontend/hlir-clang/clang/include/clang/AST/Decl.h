@@ -1561,6 +1561,11 @@ private:
   // FIXME: This can be packed into the bitfields in Decl.
   // NOTE: VC++ treats enums as signed, avoid using the StorageClass enum
   unsigned SClass : 2;
+
+  // +=== ares
+  bool IsTask : 1;
+  // =========
+
   bool IsInline : 1;
   bool IsInlineSpecified : 1;
   bool IsVirtualAsWritten : 1;
@@ -1661,6 +1666,9 @@ protected:
       redeclarable_base(C),
       ParamInfo(nullptr), Body(),
       SClass(S),
+      // +=== ares
+      IsTask(false),
+      // =========
       IsInline(isInlineSpecified), IsInlineSpecified(isInlineSpecified),
       IsVirtualAsWritten(false), IsPure(false), HasInheritedPrototype(false),
       HasWrittenPrototype(true), IsDeleted(false), IsTrivial(false),
@@ -1795,6 +1803,16 @@ public:
   /// Whether this function is marked as virtual explicitly.
   bool isVirtualAsWritten() const { return IsVirtualAsWritten; }
   void setVirtualAsWritten(bool V) { IsVirtualAsWritten = V; }
+
+  // +=== ares
+  void setTask(bool flag){
+    IsTask = flag;
+  }
+
+  bool isTask() const{
+    return IsTask;
+  }
+  // =========
 
   /// Whether this virtual function is pure, i.e. makes the containing class
   /// abstract.

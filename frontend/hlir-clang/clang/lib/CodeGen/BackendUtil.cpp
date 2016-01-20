@@ -42,6 +42,11 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/SymbolRewriter.h"
 #include <memory>
+
+// +=== ares
+#include "llvm/Transforms/ARES/HLIRPass.h"
+// =========
+
 using namespace clang;
 using namespace llvm;
 
@@ -97,6 +102,10 @@ private:
 
   void CreatePasses();
 
+  // +=== ares
+  void CreateARESPasses();
+  // =========
+  
   /// Generates the TargetMachine.
   /// Returns Null if it is unable to create the target machine.
   /// Some of our clang tests specify triples which are not built
@@ -265,6 +274,10 @@ static void addSymbolRewriterPass(const CodeGenOptions &Opts,
 }
 
 void EmitAssemblyHelper::CreatePasses() {
+  // +=== ares
+  CreateARESPasses();
+  // =========
+  
   if (CodeGenOpts.DisableLLVMPasses)
     return;
 
@@ -416,6 +429,12 @@ void EmitAssemblyHelper::CreatePasses() {
     MPM->add(createSampleProfileLoaderPass(CodeGenOpts.SampleProfileFile));
 
   PMBuilder.populateModulePassManager(*MPM);
+}
+
+void EmitAssemblyHelper::CreateARESPasses() {
+  llvm::legacy::PassManager MPM;
+  MPM.add(createHLIRPass());
+  MPM.run(*TheModule);
 }
 
 TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
