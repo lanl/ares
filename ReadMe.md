@@ -10,7 +10,7 @@ constructs.
 
 ##### Out-of-source builds are preferred when building ARES, e.g: #####
 
-  * cd <ARES path>
+  * cd ares
   * mkdir build
   * cd build
   * cmake ..
