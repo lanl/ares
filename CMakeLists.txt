@@ -13,3 +13,4 @@ include_directories(${CMAKE_SOURCE_DIR}/hlir/include)
 
 add_subdirectory(frontend/hlir-clang/llvm)
 add_subdirectory(runtime)
+add_subdirectory(test)
