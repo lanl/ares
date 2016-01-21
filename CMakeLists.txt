@@ -13,7 +13,3 @@ include_directories(${CMAKE_SOURCE_DIR}/hlir/include)
 
 add_subdirectory(frontend/hlir-clang/llvm)
 add_subdirectory(runtime)
-
-execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-  ${PROJECT_SOURCE_DIR}/frontend/hlir-clang/clang
-  ${PROJECT_SOURCE_DIR}/frontend/hlir-clang/llvm/tools/clang)
