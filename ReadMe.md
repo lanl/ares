@@ -8,7 +8,7 @@ Intermediate Representation*, or HLIR, for common compiler toolchains. HLIR is
 built ontop of the LLVM IR, using metadata to represent high-level parallel
 constructs.
 
-=== Out-of-source builds are preferred when building ARES, e.g: ===
+### Out-of-source builds are preferred when building ARES, e.g: ###
 
   * cd <ARES path>
   * mkdir build
