@@ -366,8 +366,10 @@ namespace{
     Barrier
   };
 
-  class BarrierMessage{
 
+  class BarrierMessage{
+  public:
+    int n_;
   };
 
   class MessageBuffer{
@@ -404,6 +406,10 @@ namespace{
       return size_;
     }
     
+    MessageType type(){
+      return type_;
+    }
+
   private:
     MessageType type_;
     char* buf_;
@@ -413,11 +419,19 @@ namespace{
 
   class MessageHandler{
   public:
-    MessageHandler(Channel* sendChannel, Channel* receiveChannel)
-    : sendChannel_(sendChannel),
+    virtual bool handleMessage(MessageBuffer* msg) = 0;
+  };
+
+  class MessageDispatcher{
+  public:
+    MessageDispatcher(MessageHandler* handler,
+                      Channel* sendChannel,
+                      Channel* receiveChannel)
+    : handler_(handler), 
+    sendChannel_(sendChannel),
     receiveChannel_(receiveChannel){}
 
-    ~MessageHandler(){
+    ~MessageDispatcher(){
       delete sendChannel_;
       delete receiveChannel_;
     }
@@ -439,7 +453,10 @@ namespace{
         sendMutex_.unlock();
 
         uint32_t size = msg->size();
-        sendChannel_->send((char*)&size, 4);
+        char sbuf[5];
+        memcpy(sbuf, &size, 4);
+        sbuf[4] = char(msg->type());
+        sendChannel_->send(sbuf, 5);
         sendChannel_->send(msg->buffer(), size);
 
         delete msg;
@@ -455,6 +472,11 @@ namespace{
 
         MessageBuffer* msg = new MessageBuffer(type, size, false);
         receiveChannel_->receive(msg->buffer(), size);
+
+        if(handler_->handleMessage(msg)){
+          delete msg;
+          continue;
+        }
 
         receiveMutex_.lock();
         receiveQueue_.push_back(msg);
@@ -492,9 +514,11 @@ namespace{
     VSem receiveSem_;
     mutex receiveMutex_;
     deque<MessageBuffer*> receiveQueue_;
+
+    MessageHandler* handler_;
   };
 
-  class Communicator{
+  class Communicator : public MessageHandler{
   public:
     class Barrier{
     public:
@@ -514,27 +538,27 @@ namespace{
     };
 
     virtual ~Communicator(){
-      for(MessageHandler* h : handlers_){
+      for(MessageDispatcher* h : dispatchers_){
         delete h;
       }
     }
 
-    void addMessageHandler(MessageHandler* handler){
-      handlers_.push_back(handler);
+    void addDispatcher(MessageDispatcher* dispatcher){
+      dispatchers_.push_back(dispatcher);
 
-      auto sendThread = new thread(&MessageHandler::runSend, handler);
-      handler->setSendThread(sendThread);
+      auto sendThread = new thread(&MessageDispatcher::runSend, dispatcher);
+      dispatcher->setSendThread(sendThread);
 
-      auto receiveThread = new thread(&MessageHandler::runReceive, handler);
-      handler->setReceiveThread(receiveThread);
+      auto receiveThread = new thread(&MessageDispatcher::runReceive, dispatcher);
+      dispatcher->setReceiveThread(receiveThread);
     }
 
     void send(MessageBuffer* buf){
-      handlers_[0]->send(buf);
+      dispatchers_[0]->send(buf);
     }
 
     MessageBuffer* receive(){
-      return handlers_[0]->receive();
+      return dispatchers_[0]->receive();
     }
 
     void createdConnection(){
@@ -544,9 +568,12 @@ namespace{
     virtual bool isListener() = 0; 
 
     void barrier(){
-      if(!barrier_){
-        barrier_ = new Barrier(numConnections_);
-      }
+      assert(barrier_);
+
+      auto msg = 
+        new MessageBuffer(MessageType::Barrier, sizeof(BarrierMessage), true);
+
+      send(msg);
 
       barrier_->acquire();
     }
@@ -556,10 +583,23 @@ namespace{
       barrier_ = new Barrier(2 - (int)groupSize);
     }
 
-  private:
-    using MessageHandlerVec = std::vector<MessageHandler*>;
+    bool handleMessage(MessageBuffer* msg) override{
+      switch(msg->type()){
+        case MessageType::Barrier:{
+          auto bm = msg->as<BarrierMessage>();
+          assert(barrier_);
+          barrier_->release();
+          return true;
+        }
+        default:
+          return false;
+      }
+    }
 
-    MessageHandlerVec handlers_;
+  private:
+    using MessageDispatcherVec = std::vector<MessageDispatcher*>;
+
+    MessageDispatcherVec dispatchers_;
     Barrier* barrier_ = nullptr;
     size_t numConnections_ = 0;
   };
@@ -634,9 +674,9 @@ namespace{
       }
       
       auto channel = new SocketChannel(fd);
-      auto handler = new MessageHandler(channel, channel);
+      auto dispatcher = new MessageDispatcher(this, channel, channel);
 
-      addMessageHandler(handler);
+      addDispatcher(dispatcher);
 
       return true;
     }
@@ -662,9 +702,9 @@ namespace{
                    &reuseOn, sizeof(reuseOn));
 
         auto channel = new SocketChannel(fd);
-        auto handler = new MessageHandler(channel, channel);
+        auto dispatcher = new MessageDispatcher(this, channel, channel);
 
-        addMessageHandler(handler);
+        addDispatcher(dispatcher);
 
         createdConnection();
       }
@@ -698,9 +738,9 @@ namespace{
 
       auto sendChannel = new FIFOChannel(sendFD);
       auto receiveChannel = new FIFOChannel(receiveFD);
-      auto handler = new MessageHandler(sendChannel, receiveChannel);
+      auto dispatcher = new MessageDispatcher(this, sendChannel, receiveChannel);
 
-      addMessageHandler(handler);
+      addDispatcher(dispatcher);
 
       isListener_ = true;
 
@@ -718,9 +758,9 @@ namespace{
 
       auto sendChannel = new FIFOChannel(sendFD);
       auto receiveChannel = new FIFOChannel(receiveFD);
-      auto handler = new MessageHandler(sendChannel, receiveChannel);
+      auto dispatcher = new MessageDispatcher(this, sendChannel, receiveChannel);
 
-      addMessageHandler(handler);
+      addDispatcher(dispatcher);
 
       isListener_ = false;
 
@@ -827,7 +867,7 @@ namespace ares{
     return buf;
   }
 
-  void init_comm(size_t groupSize){
+  void ares_init_comm(size_t groupSize){
     assert(_communicator);
     _communicator->init(groupSize);
   }

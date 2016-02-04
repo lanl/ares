@@ -63,7 +63,7 @@
 
    char* ares_receive(size_t& size);
 
-   void init_comm(size_t groupSize);
+   void ares_init_comm(size_t groupSize);
 
    void ares_barrier();
 
