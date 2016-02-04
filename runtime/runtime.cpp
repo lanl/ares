@@ -360,23 +360,40 @@ namespace{
     int fd_;
   };
 
-  class Message{
+  enum class MessageType : uint8_t{
+    None,
+    Raw,
+    Barrier
+  };
+
+  class BarrierMessage{
+
+  };
+
+  class MessageBuffer{
   public:
-    Message(uint32_t size, bool owned)
-    : size_(size), 
+    MessageBuffer(MessageType type, uint32_t size, bool owned)
+    : type_(type), 
+    size_(size), 
     owned_(owned){
       buf_ = (char*)malloc(size);
     }
 
-    Message(char* buf, uint32_t size, bool owned)
-    : buf_(buf),
+    MessageBuffer(MessageType type, char* buf, uint32_t size, bool owned)
+    : type_(type), 
+      buf_(buf),
       size_(size),
       owned_(owned){}
 
-    ~Message(){
+    ~MessageBuffer(){
       if(owned_){
         free(buf_);
       }
+    }
+
+    template<class T>
+    T* as(){
+      return reinterpret_cast<T*>(buf_);
     }
 
     char* buffer(){
@@ -388,6 +405,7 @@ namespace{
     }
     
   private:
+    MessageType type_;
     char* buf_;
     uint32_t size_;
     bool owned_;
@@ -416,7 +434,7 @@ namespace{
       for(;;){
         sendSem_.acquire();
         sendMutex_.lock();
-        Message* msg = sendQueue_.front();
+        MessageBuffer* msg = sendQueue_.front();
         sendQueue_.pop_front();
         sendMutex_.unlock();
 
@@ -430,11 +448,12 @@ namespace{
 
     void runReceive(){
       for(;;){
-        char sbuf[4];
-        receiveChannel_->receive(sbuf, 4);
+        char sbuf[5];
+        receiveChannel_->receive(sbuf, 5);
         uint32_t size = *((uint32_t*)sbuf);
+        MessageType type = MessageType(sbuf[4]);
 
-        Message* msg = new Message(size, false);
+        MessageBuffer* msg = new MessageBuffer(type, size, false);
         receiveChannel_->receive(msg->buffer(), size);
 
         receiveMutex_.lock();
@@ -444,17 +463,17 @@ namespace{
       }
     }
 
-    void send(Message* msg){
+    void send(MessageBuffer* msg){
       sendMutex_.lock();
       sendQueue_.push_back(msg);
       sendMutex_.unlock();
       sendSem_.release();
     }
 
-    Message* receive(){
+    MessageBuffer* receive(){
       receiveSem_.acquire();
       receiveMutex_.lock();
-      Message* msg = receiveQueue_.front();
+      MessageBuffer* msg = receiveQueue_.front();
       receiveQueue_.pop_front();
       receiveMutex_.unlock();
       return msg;
@@ -468,15 +487,32 @@ namespace{
 
     VSem sendSem_;
     mutex sendMutex_;
-    deque<Message*> sendQueue_;
+    deque<MessageBuffer*> sendQueue_;
     
     VSem receiveSem_;
     mutex receiveMutex_;
-    deque<Message*> receiveQueue_;
+    deque<MessageBuffer*> receiveQueue_;
   };
 
   class Communicator{
   public:
+    class Barrier{
+    public:
+      Barrier(int n)
+      : sem_(n){}
+
+      void release(){
+        sem_.release();
+      }
+
+      void acquire(){
+        sem_.acquire();
+      }
+
+    private:
+      VSem sem_;
+    };
+
     virtual ~Communicator(){
       for(MessageHandler* h : handlers_){
         delete h;
@@ -493,22 +529,39 @@ namespace{
       handler->setReceiveThread(receiveThread);
     }
 
-    void send(char* buf, size_t size){
-      auto msg = new Message(buf, size, true);
-      handlers_[0]->send(msg);
+    void send(MessageBuffer* buf){
+      handlers_[0]->send(buf);
     }
 
-    char* receive(size_t& size){
-      Message* msg = handlers_[0]->receive();
-      size = msg->size();
-      char* buf = msg->buffer();
-      return buf;
+    MessageBuffer* receive(){
+      return handlers_[0]->receive();
+    }
+
+    void createdConnection(){
+      ++numConnections_;
+    }
+
+    virtual bool isListener() = 0; 
+
+    void barrier(){
+      if(!barrier_){
+        barrier_ = new Barrier(numConnections_);
+      }
+
+      barrier_->acquire();
+    }
+
+    void init(size_t groupSize){
+      assert(!barrier_);
+      barrier_ = new Barrier(2 - (int)groupSize);
     }
 
   private:
     using MessageHandlerVec = std::vector<MessageHandler*>;
 
     MessageHandlerVec handlers_;
+    Barrier* barrier_ = nullptr;
+    size_t numConnections_ = 0;
   };
 
   class SocketCommunicator : public Communicator{
@@ -612,7 +665,13 @@ namespace{
         auto handler = new MessageHandler(channel, channel);
 
         addMessageHandler(handler);
+
+        createdConnection();
       }
+    }
+
+    bool isListener() override{
+      return listenFD_ > 0;
     }
 
   private:
@@ -643,6 +702,10 @@ namespace{
 
       addMessageHandler(handler);
 
+      isListener_ = true;
+
+      createdConnection();
+
       return true;
     }
 
@@ -659,11 +722,17 @@ namespace{
 
       addMessageHandler(handler);
 
+      isListener_ = false;
+
       return true;
     }
 
-  private:
+    bool isListener() override{
+      return isListener_;
+    }
 
+  private:
+    bool isListener_ = false;
   };
 
   Communicator* _communicator = nullptr;
@@ -718,40 +787,54 @@ extern "C"{
 
 namespace ares{
 
-bool ares_listen(int port){
-  assert(!_communicator);
-  auto c = new SocketCommunicator;
-  _communicator = c;
-  return c->listen(port);
-}
+  bool ares_listen(int port){
+    assert(!_communicator);
+    auto c = new SocketCommunicator;
+    _communicator = c;
+    return c->listen(port);
+  }
 
-bool ares_listen(const std::string& sendPath, const std::string& receivePath){
-  assert(!_communicator);
-  auto c = new FIFOCommunicator;
-  _communicator = c;
-  return c->listen(sendPath, receivePath);
-}
+  bool ares_listen(const std::string& sendPath, const std::string& receivePath){
+    assert(!_communicator);
+    auto c = new FIFOCommunicator;
+    _communicator = c;
+    return c->listen(sendPath, receivePath);
+  }
 
-bool ares_connect(const char* host, int port){
-  assert(!_communicator);
-  auto c = new SocketCommunicator;
-  _communicator = c;
-  return c->connect(host, port);  
-}
+  bool ares_connect(const char* host, int port){
+    assert(!_communicator);
+    auto c = new SocketCommunicator;
+    _communicator = c;
+    return c->connect(host, port);  
+  }
 
-bool ares_connect(const std::string& sendPath, const std::string& receivePath){
-  assert(!_communicator);
-  auto c = new FIFOCommunicator;
-  _communicator = c;
-  return c->connect(sendPath, receivePath);  
-}
+  bool ares_connect(const std::string& sendPath, const std::string& receivePath){
+    assert(!_communicator);
+    auto c = new FIFOCommunicator;
+    _communicator = c;
+    return c->connect(sendPath, receivePath);  
+  }
 
-void ares_send(char* buf, size_t size){
-  _communicator->send(buf, size);
-}
+  void ares_send(char* buf, size_t size){
+    auto msg = new MessageBuffer(MessageType::Raw, buf, size, true);
+    _communicator->send(msg);
+  }
 
-char* ares_receive(size_t& size){
-  return _communicator->receive(size);
-}
+  char* ares_receive(size_t& size){
+    MessageBuffer* msg = _communicator->receive();
+    size = msg->size();
+    char* buf = msg->buffer();
+    return buf;
+  }
+
+  void init_comm(size_t groupSize){
+    assert(_communicator);
+    _communicator->init(groupSize);
+  }
+
+  void ares_barrier(){
+    assert(_communicator);
+    _communicator->barrier();
+  }
 
 } // namespace ares

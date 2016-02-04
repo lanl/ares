@@ -51,17 +51,21 @@
 
  namespace ares{
 
- bool ares_listen(int port);
+   bool ares_listen(int port);
 
- bool ares_listen(const std::string& sendPath, const std::string& receivePath);
+   bool ares_listen(const std::string& sendPath, const std::string& receivePath);
 
- bool ares_connect(const char* host, int port);
+   bool ares_connect(const char* host, int port);
 
- bool ares_connect(const std::string& sendPath, const std::string& receivePath);
+   bool ares_connect(const std::string& sendPath, const std::string& receivePath);
 
- void ares_send(char* buf, size_t size);
+   void ares_send(char* buf, size_t size);
 
- char* ares_receive(size_t& size);
+   char* ares_receive(size_t& size);
+
+   void init_comm(size_t groupSize);
+
+   void ares_barrier();
 
  } // namespace ares
  
