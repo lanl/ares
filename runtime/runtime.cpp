@@ -366,26 +366,40 @@ namespace{
     Barrier
   };
 
-
   class BarrierMessage{
   public:
-    int n_;
+    static const MessageType type = MessageType::Barrier;
   };
 
   class MessageBuffer{
   public:
-    MessageBuffer(MessageType type, uint32_t size, bool owned)
+    template<class M>
+    MessageBuffer(const M& msg, bool owned)
+    : type_(M::type), 
+    size_(sizeof(M)), 
+    owned_(owned){
+      buf_ = (char*)malloc(sizeof(M));
+      memcpy(buf_, &msg, sizeof(M));
+    }
+
+    MessageBuffer(char* buf, size_t size, bool owned)
+    : type_(MessageType::Raw), 
+      buf_(buf),
+      size_(size),
+      owned_(owned){}
+
+    MessageBuffer(MessageType type, char* buf, size_t size, bool owned)
+    : type_(type), 
+      buf_(buf),
+      size_(size),
+      owned_(owned){}
+
+    MessageBuffer(MessageType type, size_t size, bool owned)
     : type_(type), 
     size_(size), 
     owned_(owned){
       buf_ = (char*)malloc(size);
     }
-
-    MessageBuffer(MessageType type, char* buf, uint32_t size, bool owned)
-    : type_(type), 
-      buf_(buf),
-      size_(size),
-      owned_(owned){}
 
     ~MessageBuffer(){
       if(owned_){
@@ -570,8 +584,8 @@ namespace{
     void barrier(){
       assert(barrier_);
 
-      auto msg = 
-        new MessageBuffer(MessageType::Barrier, sizeof(BarrierMessage), true);
+      BarrierMessage bm;
+      auto msg = new MessageBuffer(bm, true);
 
       send(msg);
 
