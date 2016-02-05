@@ -10,8 +10,8 @@ constructs.
 
 ##### Out-of-source builds are preferred when compiling ARES, e.g: #####
 
-  * cd ares
-  * mkdir build
-  * cd build
-  * cmake ..
-  * make
+    cd ares
+    mkdir build
+    cd build
+    cmake ..
+    make
