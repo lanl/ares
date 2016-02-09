@@ -49,6 +49,11 @@
  * #####
  */
 
+#ifndef __ARES_H__
+#define __ARES_H__
+
+#include <functional>
+
  namespace ares{
 
    bool ares_listen(int port);
@@ -67,5 +72,8 @@
 
    void ares_barrier();
 
+   void forall(int n, std::function<void(int)>){}
+
  } // namespace ares
  
+#endif // __ARES_H__

@@ -75,118 +75,15 @@
 #include <errno.h>
 #include <unistd.h>
 
+#include "ThreadPool.h"
+
 using namespace std;
+using namespace ares;
 
 #define np(X) cout << __FILE__ << ":" << __LINE__ << ": " << \
 __PRETTY_FUNCTION__ << ": " << #X << " = " << (X) << std::endl
 
 namespace{
-
-  const size_t NUM_THREADS = 32;
-
-  class VSem{
-  public:
-    
-    VSem(int count=0)
-    : count_(count),
-    maxCount_(0){
-
-      pthread_mutex_init(&mutex_, 0);
-      pthread_cond_init(&condition_, 0);
-    }
-    
-    VSem(int count, int maxCount)
-    : count_(count),
-    maxCount_(maxCount){
-
-      pthread_mutex_init(&mutex_, 0);
-      pthread_cond_init(&condition_, 0);
-    }
-    
-    ~VSem(){
-      pthread_cond_destroy(&condition_);
-      pthread_mutex_destroy(&mutex_);
-    }
-
-    bool acquire(double dt){
-      timeval tv;
-      gettimeofday(&tv, 0);
-      
-      double t = tv.tv_sec + tv.tv_usec/1e6;
-      t += dt;
-      
-      pthread_mutex_lock(&mutex_);
-            
-      double sec = floor(t);
-      double fsec = t - sec;
-
-      timespec ts;
-      ts.tv_sec = sec;
-      ts.tv_nsec = fsec*1e9;
-
-      while(count_ <= 0){
-        if(pthread_cond_timedwait(&condition_, 
-                                  &mutex_,
-                                  &ts) != 0){
-          pthread_mutex_unlock(&mutex_);
-          return false;
-        }
-      }
-      
-      --count_;
-      pthread_mutex_unlock(&mutex_);
-      
-      return true;
-    }
-    
-    bool acquire(){
-      pthread_mutex_lock(&mutex_);
-      
-      while(count_ <= 0){
-        pthread_cond_wait(&condition_, &mutex_);
-      }
-      
-      --count_;
-      pthread_mutex_unlock(&mutex_);
-      
-      return true;
-    }
-    
-    bool tryAcquire(){
-      pthread_mutex_lock(&mutex_);
-      
-      if(count_ > 0){
-        --count_;
-        pthread_mutex_unlock(&mutex_);
-        return true;
-      }
-
-      pthread_mutex_unlock(&mutex_);
-      return false;
-    }
-    
-    void release(){
-      pthread_mutex_lock(&mutex_);
-
-      if(maxCount_ == 0 || count_ < maxCount_){
-        ++count_;
-      }
-
-      pthread_cond_signal(&condition_);
-      pthread_mutex_unlock(&mutex_);
-    }
-    
-    VSem& operator=(const VSem&) = delete;
-    
-    VSem(const VSem&) = delete;
-
-  private:
-    pthread_mutex_t mutex_;
-    pthread_cond_t condition_;
-
-    int count_;
-    int maxCount_;
-  };
 
   class Synch{
   public:
@@ -220,93 +117,6 @@ namespace{
 
     Synch* futureSync;
     uint32_t depth;
-  };
-
-  using Func = function<void(void*)>;
-  using FuncPtr = void (*)(void*);
-
-  class ThreadPool{
-  public:
-    class Queue{
-    public:
-
-      class Item{
-      public:
-        Item(Func func, void* arg, uint32_t priority)
-        : func(func),
-        arg(arg),
-        priority(priority){}
-
-        Func func;
-        void* arg;
-        uint32_t priority;
-      };
-
-      void push(Func func, void* arg, uint32_t priority){
-        mutex_.lock();
-        queue_.push(new Item(func, arg, priority));
-        mutex_.unlock();
-        
-        sem_.release();
-      }
-      
-      Item* get(){
-        if(!sem_.acquire()){
-          return nullptr;
-        }
-
-        mutex_.lock();
-        Item* item = queue_.top();
-        queue_.pop();
-        mutex_.unlock();
-        return item;
-      }
-
-    private:
-      struct Compare_{
-        bool operator()(const Item* i1, const Item* i2) const{
-          return i1->priority < i2->priority;
-        }
-      };
-      
-      typedef priority_queue<Item*, vector<Item*>, Compare_> Queue_;
-
-      Queue_ queue_;
-      VSem sem_;
-      mutex mutex_;
-    };
-
-    ThreadPool(){
-      start();
-    }
-
-    void push(Func func, void* arg, uint32_t priority){
-      queue_.push(func, arg, priority);
-    }
-
-    void start(){
-      for(size_t i = 0; i < NUM_THREADS; ++i){
-        threadVec_.push_back(new thread(&ThreadPool::run_, this));  
-      }
-    }
-
-    void run_(){
-      for(;;){
-        Queue::Item* item = queue_.get();
-        assert(item);
-        item->func(item->arg);
-        delete item;
-      }
-    }
-
-  private:
-    using ThreadVec = std::vector<thread*>;
-
-    Queue queue_;
-
-    mutex mutex_;
-
-    ThreadVec threadVec_;
   };
 
   ThreadPool* _threadPool = new ThreadPool;
