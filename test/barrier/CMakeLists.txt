@@ -11,3 +11,5 @@ add_executable(barrier main.cpp)
 link_directories(${PROJECT_BINARY_DIR}/runtime)
 
 target_link_libraries(barrier ares_runtime)
+
+add_dependencies(barrier clang)

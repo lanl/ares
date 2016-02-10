@@ -9,3 +9,5 @@ add_executable(task-fib main.cpp)
 link_directories(${PROJECT_BINARY_DIR}/runtime)
 
 target_link_libraries(task-fib ares_runtime)
+
+add_dependencies(task-fib clang)

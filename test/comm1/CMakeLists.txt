@@ -11,3 +11,5 @@ add_executable(comm1 main.cpp)
 link_directories(${PROJECT_BINARY_DIR}/runtime)
 
 target_link_libraries(comm1 ares_runtime)
+
+add_dependencies(comm1 clang)
