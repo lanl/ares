@@ -54,6 +54,8 @@
 
 #include <pthread.h>
 
+#include <sys/time.h>
+ 
 namespace ares{
 
 class CVSemaphore{
