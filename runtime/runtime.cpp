@@ -99,7 +99,7 @@ namespace{
     }
 
   private:
-    VSem sem_;
+    CVSemaphore sem_;
   };
 
   struct FuncArg{
@@ -331,11 +331,11 @@ namespace{
     Channel* sendChannel_;
     Channel* receiveChannel_;
 
-    VSem sendSem_;
+    CVSemaphore sendSem_;
     mutex sendMutex_;
     deque<MessageBuffer*> sendQueue_;
     
-    VSem receiveSem_;
+    CVSemaphore receiveSem_;
     mutex receiveMutex_;
     deque<MessageBuffer*> receiveQueue_;
 
@@ -358,7 +358,7 @@ namespace{
       }
 
     private:
-      VSem sem_;
+      CVSemaphore sem_;
     };
 
     virtual ~Communicator(){

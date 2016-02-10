@@ -49,108 +49,117 @@
  * #####
  */
 
-#ifndef __ARES_THREAD_POOL_H__
-#define __ARES_THREAD_POOL_H__
-
-#include <vector>
-#include <mutex>
-#include <functional>
+#ifndef __ARES_CV_SEMAPHORE_H__
+#define __ARES_CV_SEMAPHORE_H__
 
 #include <pthread.h>
 
-#include "CVSemaphore.h"
-
 namespace ares{
 
-static const size_t NUM_THREADS = 128;
+class CVSemaphore{
+public:
+  
+  CVSemaphore(int count=0)
+  : count_(count),
+  maxCount_(0){
 
-using Func = std::function<void(void*)>;
-using FuncPtr = void (*)(void*);
+    pthread_mutex_init(&mutex_, 0);
+    pthread_cond_init(&condition_, 0);
+  }
+  
+  CVSemaphore(int count, int maxCount)
+  : count_(count),
+  maxCount_(maxCount){
 
-class ThreadPool{
- public:
-   class Queue{
-   public:
+    pthread_mutex_init(&mutex_, 0);
+    pthread_cond_init(&condition_, 0);
+  }
+  
+  ~CVSemaphore(){
+    pthread_cond_destroy(&condition_);
+    pthread_mutex_destroy(&mutex_);
+  }
 
-     class Item{
-     public:
-       Item(Func func, void* arg, uint32_t priority)
-       : func(func),
-       arg(arg),
-       priority(priority){}
+  bool acquire(double dt){
+    timeval tv;
+    gettimeofday(&tv, 0);
+    
+    double t = tv.tv_sec + tv.tv_usec/1e6;
+    t += dt;
+    
+    pthread_mutex_lock(&mutex_);
+          
+    double sec = floor(t);
+    double fsec = t - sec;
 
-       Func func;
-       void* arg;
-       uint32_t priority;
-     };
+    timespec ts;
+    ts.tv_sec = sec;
+    ts.tv_nsec = fsec*1e9;
 
-     void push(Func func, void* arg, uint32_t priority){
-       mutex_.lock();
-       queue_.push(new Item(func, arg, priority));
-       mutex_.unlock();
-       
-       sem_.release();
-     }
-     
-     Item* get(){
-       if(!sem_.acquire()){
-         return nullptr;
-       }
+    while(count_ <= 0){
+      if(pthread_cond_timedwait(&condition_, 
+                                &mutex_,
+                                &ts) != 0){
+        pthread_mutex_unlock(&mutex_);
+        return false;
+      }
+    }
+    
+    --count_;
+    pthread_mutex_unlock(&mutex_);
+    
+    return true;
+  }
+  
+  bool acquire(){
+    pthread_mutex_lock(&mutex_);
+    
+    while(count_ <= 0){
+      pthread_cond_wait(&condition_, &mutex_);
+    }
+    
+    --count_;
+    pthread_mutex_unlock(&mutex_);
+    
+    return true;
+  }
+  
+  bool tryAcquire(){
+    pthread_mutex_lock(&mutex_);
+    
+    if(count_ > 0){
+      --count_;
+      pthread_mutex_unlock(&mutex_);
+      return true;
+    }
 
-       mutex_.lock();
-       Item* item = queue_.top();
-       queue_.pop();
-       mutex_.unlock();
-       return item;
-     }
+    pthread_mutex_unlock(&mutex_);
+    return false;
+  }
+  
+  void release(){
+    pthread_mutex_lock(&mutex_);
 
-   private:
-     struct Compare_{
-       bool operator()(const Item* i1, const Item* i2) const{
-         return i1->priority < i2->priority;
-       }
-     };
-     
-     typedef std::priority_queue<Item*, std::vector<Item*>, Compare_> Queue_;
+    if(maxCount_ == 0 || count_ < maxCount_){
+      ++count_;
+    }
 
-     Queue_ queue_;
-     CVSemaphore sem_;
-     std::mutex mutex_;
-   };
+    pthread_cond_signal(&condition_);
+    pthread_mutex_unlock(&mutex_);
+  }
+  
+  CVSemaphore& operator=(const CVSemaphore&) = delete;
+  
+  CVSemaphore(const CVSemaphore&) = delete;
 
-   ThreadPool(){
-     start();
-   }
+private:
+  pthread_mutex_t mutex_;
+  pthread_cond_t condition_;
 
-   void push(Func func, void* arg, uint32_t priority){
-     queue_.push(func, arg, priority);
-   }
-
-   void start(){
-     for(size_t i = 0; i < NUM_THREADS; ++i){
-       threadVec_.push_back(new std::thread(&ThreadPool::run_, this));  
-     }
-   }
-
-   void run_(){
-     for(;;){
-       Queue::Item* item = queue_.get();
-       assert(item);
-       item->func(item->arg);
-       delete item;
-     }
-   }
-
- private:
-   using ThreadVec = std::vector<std::thread*>;
-
-   Queue queue_;
-
-   std::mutex mutex_;
-
-   ThreadVec threadVec_;
- };
+  int count_;
+  int maxCount_;
+};
 
 } // namespace ares
 
- #endif // __ARES_THREAD_POOL_H__
+ #endif // __ARES_CV_SEMAPHORE_H__
