@@ -140,7 +140,8 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   IRBuilder<> b(c);
   b.SetInsertPoint(marker);      
 
-  Function* createSynchFunc = getFunction("__ares_queue_func", {i32Ty});
+  Function* createSynchFunc = 
+    getFunction("__ares_create_synch", {i32Ty}, voidPtrTy);
 
   Function* queueFunc = getFunction("__ares_queue_func",
                                     {voidPtrTy, voidPtrTy, i32Ty, i32Ty});
@@ -338,8 +339,10 @@ HLIRParallelFor::HLIRParallelFor(HLIRModule* module)
   Value* argsPtr = b.CreateBitCast(argsVoidPtr, llvm::PointerType::get(argsType, 0));
   Value* synchPtr = b.CreateStructGEP(nullptr, argsPtr, 0);
   Value* indexPtr = b.CreateStructGEP(nullptr, argsPtr, 1);
-    
-  b.CreateCall(finishFunc, {synchPtr});
+   
+  Value* synchVoidPtr = b.CreateBitCast(synchPtr, module_->voidPtrTy);
+
+  b.CreateCall(finishFunc, {synchVoidPtr});
 
   (*this)["index"] = HLIRValue(indexPtr);
   (*this)["insertion"] = HLIRInstruction(ReturnInst::Create(c, entry)); 

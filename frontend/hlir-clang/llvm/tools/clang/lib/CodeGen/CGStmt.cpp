@@ -55,8 +55,8 @@ void CodeGenFunction::EmitParallelFor(const CallExpr* E){
   
   typedef vector<Value*> ValueVec;
   typedef vector<llvm::Type*> TypeVec;
-  
-  assert(E->getNumArgs() == 3);
+
+  assert(E->getNumArgs() == 2);
   
   const Expr* n = E->getArg(0);
   
@@ -78,8 +78,14 @@ void CodeGenFunction::EmitParallelFor(const CallExpr* E){
   
   B.SetInsertPoint(pfor->insertion());
   
+  AllocaInsertPt = pfor->insertion();
+
+  LexicalScope TestScope(*this, body->getSourceRange());
+
   EmitStmt(body);
-    
+ 
+  B.CreateRetVoid();
+
   B.SetInsertPoint(prevBlock, prevPoint);
 
   Value* end = EmitAnyExprToTemp(n).getScalarVal();
@@ -94,12 +100,32 @@ void CodeGenFunction::EmitParallelFor(const CallExpr* E){
 }
 
 const LambdaExpr* CodeGenFunction::GetLambda(const Expr* E){
-  if(auto me = dyn_cast<MaterializeTemporaryExpr>(E)){
-    E = me->GetTemporaryExpr();
-  }
-  
-  if(const CastExpr* c = dyn_cast<CastExpr>(E)){
-    E = c->getSubExpr();
+  for(;;){
+    bool changed = false;
+
+    if(auto ce = dyn_cast<CXXConstructExpr>(E)){
+      E = ce->getArg(0);
+      changed = true;
+    }
+
+    if(auto te = dyn_cast<CXXBindTemporaryExpr>(E)){
+      E = te->getSubExpr();
+      changed = true;
+    }
+
+    if(auto me = dyn_cast<MaterializeTemporaryExpr>(E)){
+      E = me->GetTemporaryExpr();
+      changed = true;
+    }
+
+    if(const CastExpr* c = dyn_cast<CastExpr>(E)){
+      E = c->getSubExpr();
+      changed = true;
+    }
+
+    if(!changed){
+      break;
+    }
   }
 
   return dyn_cast<LambdaExpr>(E);

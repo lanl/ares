@@ -3482,7 +3482,7 @@ RValue CodeGenFunction::EmitCallExpr(const CallExpr *E,
   // +====== ares =============================
   if(isMainStmt(E)){
     const FunctionDecl* f = E->getDirectCallee();
-    if(f && f->getQualifiedNameAsString() == "Kokkos::parallel_for"){
+    if(f && f->getQualifiedNameAsString() == "ares::forall"){
       EmitParallelFor(E);
       return RValue::get(nullptr);
     }

@@ -72,7 +72,7 @@
 
    void ares_barrier();
 
-   void forall(int n, std::function<void(int)>){}
+   void forall(int n, std::function<void(int)> f){}
 
  } // namespace ares
  
