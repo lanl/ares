@@ -1,13 +1,13 @@
-#include <ares/runtime.h>
+#include <ares/frontend.h>
 
 using namespace std;
 using namespace ares;
 
 int main(int argc, char** argv){
 
-  forall(10, [&](int i){
-    int j = 9;
-  });
+  for(auto i : Forall(0, 10)){
+
+  }
 
   return 0;
 }

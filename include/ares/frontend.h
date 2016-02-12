@@ -49,29 +49,63 @@
  * #####
  */
 
-#ifndef __ARES_RUNTIME_H__
-#define __ARES_RUNTIME_H__
+#ifndef __ARES_FRONTEND_H__
+#define __ARES_FRONTEND_H__
 
 #include <functional>
 
  namespace ares{
 
-   bool ares_listen(int port);
+   class Forall{
+   public:
+      class Iterator_{
+      public:
+        Iterator_(uint32_t index)
+        : index_(index){}
 
-   bool ares_listen(const std::string& sendPath, const std::string& receivePath);
+        Iterator_& operator++(){
+          ++index_;
+          return *this;
+        }
 
-   bool ares_connect(const char* host, int port);
+        uint32_t operator*() {
+          return index_; 
+        }
 
-   bool ares_connect(const std::string& sendPath, const std::string& receivePath);
+        bool operator==(const Iterator_& itr) const{
+          return index_ == itr.index_;
+        }
 
-   void ares_send(char* buf, size_t size);
+        bool operator!=(const Iterator_& itr) const{
+          return index_ != itr.index_;
+        }
 
-   char* ares_receive(size_t& size);
+        Iterator_& operator=(const Iterator_& itr) {
+          index_ = itr.index_;
+          return *this;
+        }
 
-   void ares_init_comm(size_t groupSize);
+      private:
+        uint32_t index_;
+      };
 
-   void ares_barrier();
+      Forall(uint32_t start, uint32_t end)
+      : start_(start),
+      end_(end){}
+
+      Iterator_ begin() const{
+        return Iterator_(start_);
+      }
+
+      Iterator_ end() const{
+        return Iterator_(end_);
+      }
+
+   private:
+    uint32_t start_;
+    uint32_t end_;
+   };
 
  } // namespace ares
  
-#endif // __ARES_RUNTIME_H__
+#endif // __ARES_FRONTEND_H__
