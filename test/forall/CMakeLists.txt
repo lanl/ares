@@ -8,10 +8,10 @@ set(CMAKE_CXX_COMPILER ${PROJECT_BINARY_DIR}/frontend/hlir-clang/llvm/bin/clang+
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
 
-add_executable(forall main.cpp)
+add_executable(forall2 main.cpp)
 
 link_directories(${PROJECT_BINARY_DIR}/runtime)
 
-target_link_libraries(forall ares_runtime)
+target_link_libraries(forall2 ares_runtime)
 
-add_dependencies(forall clang)
+add_dependencies(forall2 clang)
