@@ -38,7 +38,7 @@ using namespace CodeGen;
 using namespace ares;
 
 // +===== ares ==============================
-void CodeGenFunction::EmitParallelFor(const CallExpr* E){
+void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   using namespace llvm;
   using namespace std;
   
@@ -56,20 +56,9 @@ void CodeGenFunction::EmitParallelFor(const CallExpr* E){
   typedef vector<Value*> ValueVec;
   typedef vector<llvm::Type*> TypeVec;
 
-  assert(E->getNumArgs() == 2);
-  
-  const Expr* n = E->getArg(0);
-  
-  const LambdaExpr* le = GetLambda(E->getArg(1));
+  const Stmt* body = S.getBody();
 
-  assert(le && "expected a lambda");
-  
-  CompoundStmt* body = le->getBody();
-  CXXMethodDecl* md = le->getCallOperator();
-  
-  assert(md->getNumParams() == 1);
-  
-  ParmVarDecl* indexVar = md->getParamDecl(0);
+  const VarDecl* indexVar = S.getLoopVariable();
   
   BasicBlock* prevBlock = B.GetInsertBlock();
   BasicBlock::iterator prevPoint = B.GetInsertPoint();
@@ -80,21 +69,32 @@ void CodeGenFunction::EmitParallelFor(const CallExpr* E){
   
   AllocaInsertPt = pfor->insertion();
 
-  LexicalScope TestScope(*this, body->getSourceRange());
+  //LexicalScope TestScope(*this, body->getSourceRange());
 
   EmitStmt(body);
- 
-  B.CreateRetVoid();
 
   B.SetInsertPoint(prevBlock, prevPoint);
 
-  Value* end = EmitAnyExprToTemp(n).getScalarVal();
-  
-  pfor->setRange(0, end);
-  
+  auto ds = dyn_cast<DeclStmt>(S.getRangeStmt());
+  assert(ds);
+
+  auto vd = dyn_cast<VarDecl>(ds->getSingleDecl());
+  assert(vd);
+
+  auto mt = dyn_cast<MaterializeTemporaryExpr>(vd->getAnyInitializer());
+  assert(mt);
+
+  auto ce = dyn_cast<CXXConstructExpr>(mt->GetTemporaryExpr());
+  assert(ce);
+  assert(ce->getNumArgs() == 2);
+
+  Value* start = EmitAnyExprToTemp(ce->getArg(0)).getScalarVal();
+  Value* end = EmitAnyExprToTemp(ce->getArg(1)).getScalarVal();
+
+  pfor->setRange(start, end);
   pfor->insert(B);
   
-  std::cout << *mod << std::endl;
+  //std::cout << *mod << std::endl;
   
   CGM.getModule().dump();
 }
@@ -940,6 +940,21 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
 void
 CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
                                      ArrayRef<const Attr *> ForAttrs) {
+
+  // +====== ares =============================
+  if(isMainStmt(&S)){
+    if(auto ds = dyn_cast<DeclStmt>(S.getRangeStmt())){
+      if(auto vd = dyn_cast_or_null<VarDecl>(ds->getSingleDecl())){
+        if(vd->getType().getNonReferenceType().getAsString() == 
+           "class ares::Forall"){
+          EmitParallelFor(S);
+          return;
+        }
+      }
+    }
+  }
+  // ===========================================
+
   JumpDest LoopExit = getJumpDestInCurrentScope("for.end");
 
   LexicalScope ForScope(*this, S.getSourceRange());

@@ -41,11 +41,8 @@
 
 #include <iostream>
 
-#define ndump(X) std::cout << __FILE__ << ":" << __LINE__ << ": " << \
-__PRETTY_FUNCTION__ << ": " << #X << " = " << X << std::endl
-
-#define nlog(X) std::cout << __FILE__ << ":" << __LINE__ << ": " << \
-__PRETTY_FUNCTION__ << ": " << X << std::endl
+#define ndump(X) llvm::errs() << __FILE__ << ":" << __LINE__ << ": " << \
+__PRETTY_FUNCTION__ << ": " << #X << " = " << X << "\n"
 
 // ===========================================
 
@@ -132,7 +129,7 @@ public:
     return getContext().getSourceManager().isInMainFile(S->getLocStart());
   }
   
-  void EmitParallelFor(const CallExpr* E);
+  void EmitParallelFor(const CXXForRangeStmt& S);
   
   const LambdaExpr* GetLambda(const Expr* E);
   

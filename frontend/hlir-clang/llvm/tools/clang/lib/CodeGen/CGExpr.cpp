@@ -3477,18 +3477,7 @@ RValue CodeGenFunction::EmitRValueForField(LValue LV,
 //===--------------------------------------------------------------------===//
 
 RValue CodeGenFunction::EmitCallExpr(const CallExpr *E,
-                                     ReturnValueSlot ReturnValue) {
-
-  // +====== ares =============================
-  if(isMainStmt(E)){
-    const FunctionDecl* f = E->getDirectCallee();
-    if(f && f->getQualifiedNameAsString() == "ares::forall"){
-      EmitParallelFor(E);
-      return RValue::get(nullptr);
-    }
-  }
-  // ===========================================
-  
+                                     ReturnValueSlot ReturnValue) {  
   // Builtins never have block type.
   if (E->getCallee()->getType()->isBlockPointerType())
     return EmitBlockCallExpr(E, ReturnValue);
