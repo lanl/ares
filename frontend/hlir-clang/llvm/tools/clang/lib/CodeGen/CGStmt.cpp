@@ -67,6 +67,8 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   
   B.SetInsertPoint(pfor->insertion());
   
+  auto prevAllocaPt = AllocaInsertPt;
+
   AllocaInsertPt = pfor->insertion();
 
   //LexicalScope TestScope(*this, body->getSourceRange());
@@ -93,6 +95,8 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
 
   pfor->setRange(start, end);
   pfor->insert(B);
+
+  AllocaInsertPt = prevAllocaPt;
   
   //std::cout << *mod << std::endl;
   
