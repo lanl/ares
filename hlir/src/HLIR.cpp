@@ -175,7 +175,11 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
     Value* ri = b.CreateLoad(gi, vi->getName());
     
     for(Use& u : vi->uses()){
-      u.getUser()->replaceUsesOfWith(vi, ri);
+      User* user = u.getUser();
+      auto inst = dyn_cast<Instruction>(user);
+      if(inst && inst->getParent()->getParent() == pf->body()){
+        user->replaceUsesOfWith(vi, ri);
+      }
     }
 
     ++i;

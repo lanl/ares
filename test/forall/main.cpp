@@ -17,11 +17,13 @@ int main(int argc, char** argv){
     B[i] = 100*i;
   }
 
-  /*
+  for(auto i : Forall(0, SIZE)){
+    A[i] += B[i];
+  }
+
   for(size_t i = 0; i < SIZE; ++i){
     cout << "A[" << i << "] = " << A[i] << endl;
   }
-  */
 
   return 0;
 }
