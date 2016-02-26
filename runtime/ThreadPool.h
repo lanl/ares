@@ -60,9 +60,12 @@
 
 #include "CVSemaphore.h"
 
+ #define np(X) std::cout << __FILE__ << ":" << __LINE__ << ": " << \
+ __PRETTY_FUNCTION__ << ": " << #X << " = " << (X) << std::endl
+
 namespace ares{
 
-static const size_t NUM_THREADS = 128;
+static const size_t NUM_THREADS = 1;
 
 using Func = std::function<void(void*)>;
 using FuncPtr = void (*)(void*);

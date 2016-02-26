@@ -167,12 +167,12 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   b.SetInsertPoint(argsInsertion); 
 
   Value* argsStructPtr = 
-    b.CreateBitCast(b.CreateLoad(pf->args()), PointerType::get(argsType, 0));
+    b.CreateBitCast(pf->args(), PointerType::get(argsType, 0));
 
   size_t i = 0;
   for(Instruction* vi : v){
     Value* gi = b.CreateStructGEP(argsType, argsStructPtr, i);
-    Value* ri = b.CreateLoad(gi);
+    Value* ri = b.CreateLoad(gi, vi->getName());
     
     for(Use& u : vi->uses()){
       u.getUser()->replaceUsesOfWith(vi, ri);
@@ -222,9 +222,10 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   
   Value* index = b.CreateLoad(indexPtr);
 
-  b.CreateCall(queueFunc, {b.CreateBitCast(bodyFunc, voidPtrTy),
+  b.CreateCall(queueFunc, {synchPtr,
                            b.CreateBitCast(argsPtr, voidPtrTy),
-                           synchPtr, index, one});
+                           b.CreateBitCast(bodyFunc, voidPtrTy),
+                           index, one});
 
   Value* nextIndex = b.CreateAdd(index, one);
   
@@ -248,9 +249,9 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   
   b.CreateBr(blockAfter);
   
-  bodyFunc->dump();
+  //bodyFunc->dump();
   
-  func->dump();
+  //func->dump();
 
   //cerr << "---------- final module" << endl;
   //module_->dump();  
@@ -392,15 +393,20 @@ HLIRParallelFor::HLIRParallelFor(HLIRModule* module)
   StructType* argsType = StructType::create(c, fields, "struct.func_args");
     
   Value* argsPtr = b.CreateBitCast(argsVoidPtr, llvm::PointerType::get(argsType, 0), "args.ptr");
-  Value* synchPtr = b.CreateStructGEP(nullptr, argsPtr, 0, "synch.ptr");
-  Value* indexPtr = b.CreateStructGEP(nullptr, argsPtr, 1, "index.ptr");
-  Value* funcArgsPtr = b.CreateStructGEP(nullptr, argsPtr, 2, "funcArgs.ptr");
+
+  Value* synchPtr = b.CreateStructGEP(argsType, argsPtr, 0);
+  synchPtr = b.CreateLoad(synchPtr, "synch.ptr");
+
+  Value* indexPtr = b.CreateStructGEP(argsType, argsPtr, 1, "index.ptr");
+  
+  Value* funcArgsPtr = b.CreateStructGEP(argsType, argsPtr, 2, "funcArgs.ptr");
+  funcArgsPtr = b.CreateLoad(funcArgsPtr);
    
   Instruction* placeholder = module_->createNoOp();
 
   Value* synchVoidPtr = b.CreateBitCast(synchPtr, module_->voidPtrTy);
 
-  b.CreateCall(finishFunc, {synchVoidPtr});
+  b.CreateCall(finishFunc, {argsVoidPtr});
 
   (*this)["index"] = HLIRValue(indexPtr);
   (*this)["insertion"] = HLIRInstruction(ReturnInst::Create(c, entry)); 

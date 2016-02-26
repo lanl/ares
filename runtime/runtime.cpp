@@ -96,7 +96,7 @@ namespace{
       args(args){}
 
     Synch* synch;
-    int n;
+    uint32_t n;
     void* args;
   };
 
