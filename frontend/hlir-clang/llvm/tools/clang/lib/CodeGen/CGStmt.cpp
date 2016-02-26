@@ -100,7 +100,7 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   
   //std::cout << *mod << std::endl;
   
-  CGM.getModule().dump();
+  //CGM.getModule().dump();
 }
 
 const LambdaExpr* CodeGenFunction::GetLambda(const Expr* E){

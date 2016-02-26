@@ -1,15 +1,31 @@
-#include <iostream>
+//#include <iostream>
 
 #include <ares/frontend.h>
 
-using namespace std;
+//using namespace std;
 using namespace ares;
+
+const size_t SIZE = 100;
 
 int main(int argc, char** argv){
 
-  for(auto i : Forall(0, 10)){
-    int x = i;
+  float A[SIZE];
+  float B[SIZE];
+
+  for(auto i : Forall(0, SIZE)){
+    A[i] = i;
+    B[i] = 100*i;
   }
+
+  /*
+  for(auto i : Forall(0, SIZE)){
+    A[i] += B[i];
+  }
+
+  for(size_t i = 0; i < SIZE; ++i){
+    cout << "A[" << i << "] = " << A[i] << endl;
+  }
+  */
 
   return 0;
 }

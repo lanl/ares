@@ -90,12 +90,14 @@ namespace{
   };
 
   struct FuncArg{
-    FuncArg(Synch* synch, int n)
+    FuncArg(Synch* synch, int n, void* args)
       : n(n),
-      synch(synch){}
+      synch(synch),
+      args(args){}
 
     Synch* synch;
     int n;
+    void* args;
   };
 
   struct TaskArg{
@@ -120,9 +122,10 @@ extern "C"{
     return new Synch(count - 1);
   }
 
-  void __ares_queue_func(void* synch, void* fp, uint32_t index, uint32_t priority){
+  void __ares_queue_func(void* synch, void* args, void* fp,
+                         uint32_t index, uint32_t priority){
     _threadPool->push(reinterpret_cast<FuncPtr>(fp),
-      new FuncArg(reinterpret_cast<Synch*>(synch), index), priority);
+      new FuncArg(reinterpret_cast<Synch*>(synch), index, args), priority);
   }
 
   void __ares_finish_func(void* arg){

@@ -1218,6 +1218,14 @@ namespace ares{
       return get<HLIRInstruction>("insertion");
     }
 
+    auto& argsInsertion() const{
+      return get<HLIRInstruction>("argsInsertion");
+    }
+
+    auto& args() const{
+      return get<HLIRValue>("args");
+    }
+
     HLIRFunction& body();
 
     void setRange(const HLIRInteger& start, const HLIRInteger& end){

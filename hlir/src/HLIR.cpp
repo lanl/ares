@@ -80,8 +80,22 @@ namespace{
     return _nextId++;
   }
 
-  std::string createName(const std::string& prefix){
+  string createName(const string& prefix){
     return prefix + toStr(createId());
+  }
+
+  void findExternalValues(Function* f, vector<Instruction*>& v){
+    for(BasicBlock& bi : *f){
+      for(Instruction& ii : bi){
+        for(Value* vi : ii.operands()){
+          if(Instruction* ij = dyn_cast<Instruction>(vi)){
+            if(ij->getParent()->getParent() != f){
+              v.push_back(ij);
+            }
+          }
+        }
+      }
+    }
   }
 
 } // namespace
@@ -138,13 +152,51 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   auto& c = module_->getContext();
 
   IRBuilder<> b(c);
+
+  TypeVec fields;
+
+  vector<Instruction*> v;
+  findExternalValues(pf->body(), v);
+  for(Instruction* vi : v){
+    fields.push_back(vi->getType());    
+  }
+
+  StructType* argsType = StructType::create(c, fields, "struct.func_args");
+
+  auto argsInsertion = pf->get<HLIRInstruction>("argsInsertion");
+  b.SetInsertPoint(argsInsertion); 
+
+  Value* argsStructPtr = 
+    b.CreateBitCast(b.CreateLoad(pf->args()), PointerType::get(argsType, 0));
+
+  size_t i = 0;
+  for(Instruction* vi : v){
+    Value* gi = b.CreateStructGEP(argsType, argsStructPtr, i);
+    Value* ri = b.CreateLoad(gi);
+    
+    for(Use& u : vi->uses()){
+      u.getUser()->replaceUsesOfWith(vi, ri);
+    }
+
+    ++i;
+  }
+
   b.SetInsertPoint(marker);      
+
+  Value* argsPtr = b.CreateAlloca(argsType);
+
+  for(size_t i = 0; i < v.size(); ++i){
+    Value* vi = v[i];
+    Value* pi = b.CreateStructGEP(argsType, argsPtr, i);
+    b.CreateStore(vi, pi);    
+  }
 
   Function* createSynchFunc = 
     getFunction("__ares_create_synch", {i32Ty}, voidPtrTy);
 
-  Function* queueFunc = getFunction("__ares_queue_func",
-                                    {voidPtrTy, voidPtrTy, i32Ty, i32Ty});
+  Function* queueFunc = 
+  getFunction("__ares_queue_func",
+              {voidPtrTy, voidPtrTy, voidPtrTy, i32Ty, i32Ty});
 
   Function* awaitFunc = getFunction("__ares_await_synch", {voidPtrTy});
 
@@ -171,6 +223,7 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   Value* index = b.CreateLoad(indexPtr);
 
   b.CreateCall(queueFunc, {b.CreateBitCast(bodyFunc, voidPtrTy),
+                           b.CreateBitCast(argsPtr, voidPtrTy),
                            synchPtr, index, one});
 
   Value* nextIndex = b.CreateAdd(index, one);
@@ -197,6 +250,8 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   
   bodyFunc->dump();
   
+  func->dump();
+
   //cerr << "---------- final module" << endl;
   //module_->dump();  
 }
@@ -333,19 +388,24 @@ HLIRParallelFor::HLIRParallelFor(HLIRModule* module)
   BasicBlock* entry = BasicBlock::Create(c, "entry", func);
   b.SetInsertPoint(entry);
     
-  TypeVec fields = {module_->voidPtrTy, module_->i32Ty};
+  TypeVec fields = {module_->voidPtrTy, module_->i32Ty, module_->voidPtrTy};
   StructType* argsType = StructType::create(c, fields, "struct.func_args");
     
-  Value* argsPtr = b.CreateBitCast(argsVoidPtr, llvm::PointerType::get(argsType, 0));
-  Value* synchPtr = b.CreateStructGEP(nullptr, argsPtr, 0);
-  Value* indexPtr = b.CreateStructGEP(nullptr, argsPtr, 1);
+  Value* argsPtr = b.CreateBitCast(argsVoidPtr, llvm::PointerType::get(argsType, 0), "args.ptr");
+  Value* synchPtr = b.CreateStructGEP(nullptr, argsPtr, 0, "synch.ptr");
+  Value* indexPtr = b.CreateStructGEP(nullptr, argsPtr, 1, "index.ptr");
+  Value* funcArgsPtr = b.CreateStructGEP(nullptr, argsPtr, 2, "funcArgs.ptr");
    
+  Instruction* placeholder = module_->createNoOp();
+
   Value* synchVoidPtr = b.CreateBitCast(synchPtr, module_->voidPtrTy);
 
   b.CreateCall(finishFunc, {synchVoidPtr});
 
   (*this)["index"] = HLIRValue(indexPtr);
   (*this)["insertion"] = HLIRInstruction(ReturnInst::Create(c, entry)); 
+  (*this)["args"] = HLIRValue(funcArgsPtr);
+  (*this)["argsInsertion"] = HLIRInstruction(placeholder); 
 
   HLIRFunction f(func);
   (*this)["body"] = f;  
