@@ -397,6 +397,28 @@ namespace ares{
     }
   };
 
+  class HLIRType : public HLIRContainer<llvm::Type>{
+  public:
+    using Super = HLIRContainer<llvm::Type>;
+
+    HLIRType(llvm::Type* type) : Super(type){}
+
+    virtual void output(std::ostream& ostr, size_t level=0) const override{
+      std::string str;
+      llvm::raw_string_ostream sstr(str);
+      ptr_->print(sstr);
+      ostr << "<<<type:" << sstr.str() << ">>>"; 
+    }
+
+    virtual HLIRType* copy() const override{
+      return new HLIRType(ptr_);
+    }
+
+    static HLIRType nullValue(){
+      return nullptr;
+    }
+  };
+
   class HLIRInstruction : public HLIRContainer<llvm::Instruction>{
   public:
     using Super = HLIRContainer<llvm::Instruction>;
@@ -844,6 +866,7 @@ namespace ares{
 
   class HLIRConstruct;
   class HLIRParallelFor;
+  class HLIRParallelReduce;
   class HLIRTask;
 
   class HLIRModule : public HLIRMap{
@@ -904,6 +927,8 @@ namespace ares{
 
     HLIRParallelFor* createParallelFor();
 
+    HLIRParallelReduce* createParallelReduce(const HLIRType& reduceType);
+
     HLIRTask* createTask();
 
     llvm::Module* module(){
@@ -945,6 +970,8 @@ namespace ares{
     bool lowerToIR_();
 
     void lowerParallelFor_(HLIRParallelFor* pfor);
+
+    void lowerParallelReduce_(HLIRParallelReduce* reduce);
 
     void lowerTask_(HLIRTask* task);
 
@@ -1245,6 +1272,73 @@ namespace ares{
     friend class HLIRPass;
 
     HLIRParallelFor(HLIRModule* module);
+
+    auto& callMarker() const{
+      return get<HLIRInstruction>("callMarker");
+    }
+  };
+
+  class HLIRParallelReduce : public HLIRConstruct{
+  public:
+    virtual std::string intrinsic() const override{
+      return "parallel_reduce";
+    }
+
+    void setName(const HLIRString& name){
+      (*this)["name"] = name;
+    }
+
+    auto& name() const{
+      return get<HLIRString>("name");
+    }
+
+    auto& index() const{
+      return get<HLIRValue>("index");
+    }
+
+    auto& reduceType() const{
+      return get<HLIRType>("reduceType");
+    }
+
+    auto& reduceVar() const{
+      return get<HLIRValue>("reduceVar");
+    }
+
+    auto& insertion() const{
+      return get<HLIRInstruction>("insertion");
+    }
+
+    auto& entry() const{
+      return get<HLIRInstruction>("entry");
+    }
+
+    auto& argsInsertion() const{
+      return get<HLIRInstruction>("argsInsertion");
+    }
+
+    auto& args() const{
+      return get<HLIRValue>("args");
+    }
+
+    HLIRFunction& body();
+
+    void setRange(const HLIRInteger& start, const HLIRInteger& end){
+      if(start > end){
+        HLIR_ERROR("invalid range");
+      }
+
+      (*this)["range"] = HLIRVector() << start << end;
+    }
+
+    auto& range() const{
+      return get<HLIRVector>("range");
+    }
+
+  private:
+    friend class HLIRModule;
+    friend class HLIRPass;
+
+    HLIRParallelReduce(HLIRModule* module, const HLIRType& reduceType);
 
     auto& callMarker() const{
       return get<HLIRInstruction>("callMarker");

@@ -127,6 +127,20 @@ HLIRParallelFor* HLIRModule::createParallelFor(){
   return pf;
 }
 
+HLIRParallelReduce* HLIRModule::createParallelReduce(
+  const HLIRType& reduceType){
+  
+  auto r = new HLIRParallelReduce(this, reduceType);
+  constructs_.push_back(r);
+
+  string name = createName("reduce");
+  r->setName(name);
+
+  (*this)[name] = r;
+  
+  return r;
+}
+
 HLIRTask* HLIRModule::createTask(){
   auto task = new HLIRTask(this);
   constructs_.push_back(task);
@@ -261,6 +275,12 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   //module_->dump();  
 }
 
+void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
+  auto marker = r->get<HLIRInstruction>("marker");
+
+  marker->removeFromParent();
+}
+
 void HLIRModule::lowerTask_(HLIRTask* task){
   auto& b = builder();
   auto& c = context();
@@ -356,6 +376,9 @@ bool HLIRModule::lowerToIR_(){
     if(auto pfor = dynamic_cast<HLIRParallelFor*>(c)){
       lowerParallelFor_(pfor);
     }
+    else if(auto r = dynamic_cast<HLIRParallelReduce*>(c)){
+      lowerParallelReduce_(r);
+    }
     else if(auto task = dynamic_cast<HLIRTask*>(c)){
       lowerTask_(task);
     }
@@ -416,6 +439,70 @@ HLIRParallelFor::HLIRParallelFor(HLIRModule* module)
   (*this)["insertion"] = HLIRInstruction(ReturnInst::Create(c, entry)); 
   (*this)["args"] = HLIRValue(funcArgsPtr);
   (*this)["argsInsertion"] = HLIRInstruction(placeholder); 
+
+  HLIRFunction f(func);
+  (*this)["body"] = f;  
+}
+
+HLIRParallelReduce::HLIRParallelReduce(HLIRModule* module,
+  const HLIRType& reduceType)
+  : HLIRConstruct(module){
+
+  auto& b = module_->builder();
+  auto& c = module_->context();
+    
+  TypeVec params = {module_->voidPtrTy};
+  
+  auto funcType = FunctionType::get(reduceType, params, false);
+
+  Function* func =
+    Function::Create(funcType,
+                     llvm::Function::ExternalLinkage,
+                     "hlir.parallel_reduce.body",
+                     module_->module());
+
+  Function* finishFunc = 
+    module_->getFunction("__ares_finish_func", {module_->voidPtrTy});
+
+  auto aitr = func->arg_begin();
+  aitr->setName("args.ptr");
+  Value* argsVoidPtr = aitr++;
+    
+  BasicBlock* entry = BasicBlock::Create(c, "entry", func);
+  b.SetInsertPoint(entry);
+
+  Instruction* reduceVar = b.CreateAlloca(reduceType);
+
+  TypeVec fields = {module_->voidPtrTy, module_->i32Ty, module_->voidPtrTy};
+  StructType* argsType = StructType::create(c, fields, "struct.func_args");
+    
+  Value* argsPtr = b.CreateBitCast(argsVoidPtr, llvm::PointerType::get(argsType, 0), "args.ptr");
+
+  Value* synchPtr = b.CreateStructGEP(argsType, argsPtr, 0);
+  synchPtr = b.CreateLoad(synchPtr, "synch.ptr");
+
+  Value* indexPtr = b.CreateStructGEP(argsType, argsPtr, 1, "index.ptr");
+  
+  Value* funcArgsPtr = b.CreateStructGEP(argsType, argsPtr, 2, "funcArgs.ptr");
+  funcArgsPtr = b.CreateLoad(funcArgsPtr);
+   
+  Instruction* placeholder = module_->createNoOp();
+
+  Value* synchVoidPtr = b.CreateBitCast(synchPtr, module_->voidPtrTy);
+
+  b.CreateCall(finishFunc, {argsVoidPtr});
+
+  Instruction* retVal = b.CreateLoad(reduceVar);
+
+  Instruction* ret = ReturnInst::Create(c, retVal, entry);
+
+  (*this)["entry"] = HLIRInstruction(reduceVar);
+  (*this)["index"] = HLIRValue(indexPtr);
+  (*this)["insertion"] = HLIRInstruction(retVal); 
+  (*this)["args"] = HLIRValue(funcArgsPtr);
+  (*this)["argsInsertion"] = HLIRInstruction(placeholder); 
+  (*this)["reduceVar"] = HLIRValue(reduceVar);
+  (*this)["reduceType"] = reduceType;
 
   HLIRFunction f(func);
   (*this)["body"] = f;  

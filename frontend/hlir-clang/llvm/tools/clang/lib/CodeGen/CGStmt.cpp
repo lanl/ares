@@ -103,6 +103,87 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   //CGM.getModule().dump();
 }
 
+void CodeGenFunction::EmitParallelReduce(const CXXForRangeStmt& S){
+  using namespace llvm;
+  using namespace std;
+  
+  auto& B = Builder;
+  LLVMContext& C = getLLVMContext();
+
+  auto ds = dyn_cast<DeclStmt>(S.getRangeStmt());
+  assert(ds);
+
+  auto vd = dyn_cast<VarDecl>(ds->getSingleDecl());
+  assert(vd);
+
+  auto mt = dyn_cast<MaterializeTemporaryExpr>(vd->getAnyInitializer());
+  assert(mt);
+
+  auto ce = dyn_cast<CXXConstructExpr>(mt->GetTemporaryExpr());
+  assert(ce);
+  assert(ce->getNumArgs() == 3);
+
+  
+  HLIRModule* mod = HLIRModule::getModule(&CGM.getModule());
+
+  mod->setName("Test");
+  mod->setLanguage("C++");
+  mod->setVersion("1.0");
+  
+  llvm::Type* rt = ConvertType(ce->getArg(2)->getType().getNonReferenceType());
+
+  HLIRParallelReduce* r = mod->createParallelReduce(rt);
+
+  auto dr = dyn_cast<DeclRefExpr>(ce->getArg(2));
+  assert(dr);
+
+  auto vr = dyn_cast<VarDecl>(dr->getDecl());
+  assert(vr);
+
+  LocalDeclMap.erase(vr);
+  setAddrOfLocalVar(vr, aresAddr(r->reduceVar()));
+  
+  typedef vector<Value*> ValueVec;
+  typedef vector<llvm::Type*> TypeVec;
+
+  const Stmt* body = S.getBody();
+
+  const VarDecl* indexVar = S.getLoopVariable();
+  
+  BasicBlock* prevBlock = B.GetInsertBlock();
+  BasicBlock::iterator prevPoint = B.GetInsertPoint();
+  
+  setAddrOfLocalVar(indexVar, Address(r->index(), getPointerAlign()));
+  
+  B.SetInsertPoint(r->insertion());
+  
+  auto prevAllocaPt = AllocaInsertPt;
+
+  AllocaInsertPt = r->entry();
+
+  //r->insertion()->dump();
+
+  //LexicalScope TestScope(*this, body->getSourceRange());
+
+  EmitStmt(body);
+
+  B.SetInsertPoint(prevBlock, prevPoint);
+
+  Value* start = EmitAnyExprToTemp(ce->getArg(0)).getScalarVal();
+  Value* end = EmitAnyExprToTemp(ce->getArg(1)).getScalarVal();
+  //Value* var = EmitAnyExprToTemp(ce->getArg(2)).getScalarVal();
+
+  r->setRange(start, end);
+  //r->setVar(var);
+  r->insert(B);
+
+  AllocaInsertPt = prevAllocaPt;
+  
+  //std::cout << *mod << std::endl;
+  
+  //CGM.getModule().dump();
+}
+
 const LambdaExpr* CodeGenFunction::GetLambda(const Expr* E){
   for(;;){
     bool changed = false;
@@ -949,9 +1030,14 @@ CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
   if(isMainStmt(&S)){
     if(auto ds = dyn_cast<DeclStmt>(S.getRangeStmt())){
       if(auto vd = dyn_cast_or_null<VarDecl>(ds->getSingleDecl())){
-        if(vd->getType().getNonReferenceType().getAsString() == 
-           "class ares::Forall"){
+        std::string name = vd->getType().getNonReferenceType().getAsString();
+
+        if(name == "class ares::Forall"){
           EmitParallelFor(S);
+          return;
+        }
+        else if(name == "class ares::ReduceAll"){
+          EmitParallelReduce(S);
           return;
         }
       }

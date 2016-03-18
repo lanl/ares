@@ -106,6 +106,57 @@
     uint32_t end_;
    };
 
+   class ReduceAll{
+   public:
+      class Iterator_{
+      public:
+        Iterator_(uint32_t index)
+        : index_(index){}
+
+        Iterator_& operator++(){
+          ++index_;
+          return *this;
+        }
+
+        uint32_t operator*() {
+          return index_; 
+        }
+
+        bool operator==(const Iterator_& itr) const{
+          return index_ == itr.index_;
+        }
+
+        bool operator!=(const Iterator_& itr) const{
+          return index_ != itr.index_;
+        }
+
+        Iterator_& operator=(const Iterator_& itr) {
+          index_ = itr.index_;
+          return *this;
+        }
+
+      private:
+        uint32_t index_;
+      };
+
+      template<typename T>
+      ReduceAll(uint32_t start, uint32_t end, T& r)
+      : start_(start),
+      end_(end){}
+
+      Iterator_ begin() const{
+        return Iterator_(start_);
+      }
+
+      Iterator_ end() const{
+        return Iterator_(end_);
+      }
+
+   private:
+    uint32_t start_;
+    uint32_t end_;
+   };
+
  } // namespace ares
  
 #endif // __ARES_FRONTEND_H__

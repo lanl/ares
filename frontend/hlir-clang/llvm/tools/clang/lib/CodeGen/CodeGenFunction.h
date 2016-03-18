@@ -131,6 +131,8 @@ public:
   
   void EmitParallelFor(const CXXForRangeStmt& S);
   
+  void EmitParallelReduce(const CXXForRangeStmt& S);
+
   const LambdaExpr* GetLambda(const Expr* E);
   
   Address aresAddr(llvm::Value* v){
