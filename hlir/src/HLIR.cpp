@@ -351,6 +351,81 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   Value* end = 
     b.CreateSelect(cond, size, b.CreateMul(q, b.CreateAdd(threadIndex, one)));
 
+  Value* rptr = b.CreateAlloca(rt);
+
+  Value* initVal;
+
+  if(rt->isFloatingPointTy()){
+    if(r->sum()){
+      initVal = ConstantFP::get(rt, 0.0);
+    }
+    else{
+      initVal = ConstantFP::get(rt, 1.0);
+    }
+  }
+  else{
+    if(r->sum()){
+      initVal = ConstantInt::get(rt, 0);
+    }
+    else{
+      initVal = ConstantInt::get(rt, 1);
+    }
+  }
+
+  b.CreateStore(initVal, rptr);
+
+  Value* iPtr = b.CreateAlloca(i32Ty);
+
+  b.CreateStore(start, iPtr);
+
+  BasicBlock* condBlock5 = BasicBlock::Create(c, "cond.block", func);
+  b.CreateBr(condBlock5);
+
+  b.SetInsertPoint(condBlock5);
+
+  Value* i = b.CreateLoad(iPtr);
+
+  Value* endCond = b.CreateICmpULT(i, end);
+
+  BasicBlock* loopBlock5 = BasicBlock::Create(c, "loop.block", func);
+
+  BasicBlock* mergeBlock5 = BasicBlock::Create(c, "merge.block", func);
+
+  b.CreateCondBr(endCond, loopBlock5, mergeBlock5);
+
+  b.SetInsertPoint(loopBlock5);
+
+  Value* rv = b.CreateLoad(rptr);
+
+  ValueVec args2 = {i, argsVoidPtr};
+
+  Value* bi = b.CreateCall(bodyFunc, args2);
+
+  Value* si;
+
+  if(rt->isFloatingPointTy()){
+    if(r->sum()){
+      si = b.CreateFAdd(rv, bi);
+    }
+    else{
+      si = b.CreateFMul(rv, bi);
+    }
+  }
+  else{
+    if(r->sum()){
+      si = b.CreateAdd(rv, bi);
+    }
+    else{
+      si = b.CreateMul(rv, bi);
+    }
+  }
+
+  b.CreateStore(si, rptr);
+
+  b.CreateBr(condBlock5);
+
+  b.SetInsertPoint(mergeBlock5);
+
   Function* barrierFunc = getFunction("__ares_wait_barrier", {voidPtrTy});
 
   ValueVec args = {barrier};
@@ -361,7 +436,6 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.CreateStore(two, p2Ptr);
 
-  Value* iPtr = b.CreateAlloca(i32Ty);
   b.CreateStore(one, iPtr);
 
   BasicBlock* condBlock = BasicBlock::Create(c, "cond.block", func);
@@ -369,7 +443,7 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.SetInsertPoint(condBlock);
 
-  Value* i = b.CreateLoad(iPtr);
+  i = b.CreateLoad(iPtr);
 
   Value* cond2 = b.CreateICmpULE(i, numThreads);
 
