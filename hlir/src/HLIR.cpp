@@ -311,14 +311,18 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   TypeVec fields;
   fields.push_back(PointerType::get(rt, 0));
   fields.push_back(voidPtrTy);
+  fields.push_back(voidPtrTy);
   fields.push_back(i32Ty);
   fields.push_back(i32Ty);
   fields.push_back(i32Ty);
   fields.push_back(bft);
+  fields.push_back(voidPtrTy);
 
   StructType* argsType = StructType::create(c, fields, "struct.args");
 
-  Value* argsPtr = b.CreateBitCast(argsVoidPtr, PointerType::get(argsType, 0));
+  Type* argsPtrType = PointerType::get(argsType, 0);
+
+  Value* argsPtr = b.CreateBitCast(argsVoidPtr, argsPtrType);
 
   Value* partialSums = b.CreateStructGEP(nullptr, argsPtr, 0);
   partialSums = b.CreateLoad(partialSums);
@@ -326,17 +330,23 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   Value* barrier = b.CreateStructGEP(nullptr, argsPtr, 1);
   barrier = b.CreateLoad(barrier);
 
-  Value* threadIndex = b.CreateStructGEP(nullptr, argsPtr, 2);
+  Value* synch = b.CreateStructGEP(nullptr, argsPtr, 2);
+  synch = b.CreateLoad(synch);
+
+  Value* threadIndex = b.CreateStructGEP(nullptr, argsPtr, 3);
   threadIndex = b.CreateLoad(threadIndex);
 
-  Value* numThreads = b.CreateStructGEP(nullptr, argsPtr, 3);
+  Value* numThreads = b.CreateStructGEP(nullptr, argsPtr, 4);
   numThreads = b.CreateLoad(numThreads);
 
-  Value* size = b.CreateStructGEP(nullptr, argsPtr, 4);
+  Value* size = b.CreateStructGEP(nullptr, argsPtr, 5);
   size = b.CreateLoad(size);
 
-  Value* bodyFunc = b.CreateStructGEP(nullptr, argsPtr, 5);
+  Value* bodyFunc = b.CreateStructGEP(nullptr, argsPtr, 6);
   bodyFunc = b.CreateLoad(bodyFunc);
+
+  Value* bodyArgs = b.CreateStructGEP(nullptr, argsPtr, 7);
+  bodyArgs = b.CreateLoad(bodyArgs);
 
   Value* zero = ConstantInt::get(i32Ty, 0);
   Value* one = ConstantInt::get(i32Ty, 1);
@@ -397,7 +407,7 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   Value* rv = b.CreateLoad(rptr);
 
-  ValueVec args2 = {i, argsVoidPtr};
+  ValueVec args2 = {i, bodyArgs};
 
   Value* bi = b.CreateCall(bodyFunc, args2);
 
@@ -498,8 +508,143 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.SetInsertPoint(mergeBlock);
 
+  Function* awaitFunc = getFunction("__ares_await_synch", {voidPtrTy});
+  args = {synch};
+
+  b.CreateCall(awaitFunc, args);
+
   b.CreateRetVoid();
 
+  TypeVec captureFields;
+
+  vector<Instruction*> v;
+  findExternalValues(r->body(), v);
+  for(Instruction* vi : v){
+    captureFields.push_back(vi->getType());    
+  }
+
+  Type* captureArgsType = StructType::create(c, captureFields, "struct.func_args");
+
+  auto argsInsertion = r->get<HLIRInstruction>("argsInsertion");
+  b.SetInsertPoint(argsInsertion); 
+
+  Value* argsStructPtr = 
+    b.CreateBitCast(r->args(), PointerType::get(captureArgsType, 0));
+
+  size_t j = 0;
+  for(Instruction* vi : v){
+    Value* gi = b.CreateStructGEP(captureArgsType, argsStructPtr, j);
+    Value* ri = b.CreateLoad(gi, vi->getName());
+    
+    for(Use& u : vi->uses()){
+      User* user = u.getUser();
+      auto inst = dyn_cast<Instruction>(user);
+      if(inst && inst->getParent()->getParent() == r->body()){
+        user->replaceUsesOfWith(vi, ri);
+      }
+    }
+
+    ++j;
+  }
+
+  b.SetInsertPoint(marker);
+
+  Value* captureArgsPtr = b.CreateAlloca(captureArgsType);
+
+  for(size_t i = 0; i < v.size(); ++i){
+    Value* vi = v[i];
+    Value* pi = b.CreateStructGEP(captureArgsType, captureArgsPtr, i);
+    b.CreateStore(vi, pi);    
+  }
+
+  Function* createSynchFunc = 
+    getFunction("__ares_create_synch", {i32Ty}, voidPtrTy);
+
+  Function* createBarrierFunc = 
+    getFunction("__ares_create_barrier", {i32Ty}, voidPtrTy);
+
+  Function* queueFunc = 
+  getFunction("__ares_queue_func",
+              {voidPtrTy, voidPtrTy, voidPtrTy, i32Ty, i32Ty});
+
+  ft = FunctionType::get(voidTy, {voidPtrTy}, false);
+
+  auto range = r->range();
+  start = toInt32(range[0]->as<HLIRInteger>());
+  end = toInt32(range[1]->as<HLIRInteger>());
+
+  Value* n = b.CreateSub(end, start, "n");
+
+  Value* synchPtr = b.CreateCall(createSynchFunc, {n}, "synch.ptr");
+
+  Value* barrierPtr = b.CreateCall(createSynchFunc, {n}, "synch.ptr");
+
+  Value* indexPtr = b.CreateAlloca(i32Ty, nullptr, "index.ptr");
+  b.CreateStore(start, indexPtr);
+
+  Value* partialSumsPtr = b.CreateAlloca(rt, numThreads);
+
+  loopBlock = BasicBlock::Create(c, "pfor.queue.loop", func);
+  b.CreateBr(loopBlock);
+  b.SetInsertPoint(loopBlock);
+
+  Value* reduceArgs = b.CreateAlloca(argsType);
+  
+  numThreads = ConstantInt::get(i32Ty, 8);
+
+  Value* index = b.CreateLoad(indexPtr);
+
+  Value* argsIdx = b.CreateStructGEP(argsType, reduceArgs, 0);
+  b.CreateStore(partialSumsPtr, argsIdx);
+
+  argsIdx = b.CreateStructGEP(argsType, reduceArgs, 1);
+  b.CreateStore(barrierPtr, argsIdx);
+
+  argsIdx = b.CreateStructGEP(argsType, reduceArgs, 2);
+  b.CreateStore(synchPtr, argsIdx);
+
+  argsIdx = b.CreateStructGEP(argsType, reduceArgs, 3);
+  b.CreateStore(index, argsIdx);
+
+  argsIdx = b.CreateStructGEP(argsType, reduceArgs, 4);
+  b.CreateStore(numThreads, argsIdx);
+
+  argsIdx = b.CreateStructGEP(argsType, reduceArgs, 5);
+  b.CreateStore(n, argsIdx);
+
+  argsIdx = b.CreateStructGEP(argsType, reduceArgs, 6);
+  b.CreateStore(func, argsIdx);
+
+  argsIdx = b.CreateStructGEP(argsType, reduceArgs, 7);
+  b.CreateStore(captureArgsPtr, argsIdx);
+
+  b.CreateCall(queueFunc, {synchPtr,
+                           b.CreateBitCast(reduceArgs, voidPtrTy),
+                           b.CreateBitCast(bodyFunc, voidPtrTy),
+                           index, one});
+
+  Value* nextIndex = b.CreateAdd(index, one);
+  
+  b.CreateStore(nextIndex, indexPtr);
+  
+  cond = b.CreateICmpULT(nextIndex, end);
+  
+  BasicBlock* exitBlock = BasicBlock::Create(c, "pfor.queue.exit", func);
+  
+  b.CreateCondBr(cond, loopBlock, exitBlock);
+  
+  BasicBlock* blockAfter = block->splitBasicBlock(*marker, "pfor.merge");
+
+  block->getTerminator()->removeFromParent();
+  
+  marker->removeFromParent();
+  
+  b.SetInsertPoint(exitBlock);
+
+  b.CreateCall(awaitFunc, {synchPtr});
+  
+  b.CreateBr(blockAfter);
+  
   //func->dump();
 
   marker->removeFromParent();
