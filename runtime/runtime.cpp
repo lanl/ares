@@ -61,6 +61,7 @@
 #include <queue>
 
 #include "ThreadPool.h"
+#include "Barrier.h"
 
 #include "communication.h"
 
@@ -71,6 +72,8 @@ using namespace ares;
 __PRETTY_FUNCTION__ << ": " << #X << " = " << (X) << std::endl
 
 namespace{
+
+  static const size_t NUM_THREADS = 32;
 
   class Synch{
   public:
@@ -108,7 +111,7 @@ namespace{
     uint32_t depth;
   };
 
-  ThreadPool* _threadPool = new ThreadPool;
+  ThreadPool* _threadPool = new ThreadPool(NUM_THREADS);
 
   mutex _logMutex;
 
@@ -120,6 +123,14 @@ extern "C"{
 
   void* __ares_create_synch(uint32_t count){
     return new Synch(count - 1);
+  }
+
+  void* __ares_create_barrier(uint32_t count){
+    assert(false && "unimplemented");
+  }
+
+  void __ares_wait_barrier(void* barrier){
+    assert(false && "unimplemented");
   }
 
   void __ares_queue_func(void* synch, void* args, void* fp,
@@ -134,9 +145,9 @@ extern "C"{
     delete a;
   }
 
-  void __ares_await_synch(void* synch){
+  void __ares_release_synch(void* synch){
     auto s = reinterpret_cast<Synch*>(synch);
-    s->await();
+    s->release();
     delete s;
   }
 

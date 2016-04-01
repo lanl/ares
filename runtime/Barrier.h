@@ -49,113 +49,53 @@
  * #####
  */
 
-#ifndef __ARES_THREAD_POOL_H__
-#define __ARES_THREAD_POOL_H__
+#ifndef __ARES_BARRIER_H__
+#define __ARES_BARRIER_H__
 
-#include <vector>
 #include <mutex>
-#include <functional>
-#include <thread>
-#include <queue>
-#include <cassert>
-#include <cmath>
-
-#include <pthread.h>
-
-#include "CVSemaphore.h"
-
- #define np(X) std::cout << __FILE__ << ":" << __LINE__ << ": " << \
- __PRETTY_FUNCTION__ << ": " << #X << " = " << (X) << std::endl
+#include <condition_variable>
 
 namespace ares{
 
-using Func = std::function<void(void*)>;
-using FuncPtr = void (*)(void*);
+  class Barrier{
+  public:
+      Barrier(size_t count)
+      : initialCount_(count), 
+      count_(count),
+      ready_(false){}
 
-class ThreadPool{
- public:
-   class Queue{
-   public:
+      void wait(){
+        std::unique_lock<std::mutex> lock(mutex_);
 
-     class Item{
-     public:
-       Item(Func func, void* arg, uint32_t priority)
-       : func(func),
-       arg(arg),
-       priority(priority){}
+        if(ready_){
+          if(++count_ == initialCount_) {
+            ready_ = false;
+            cond_.notify_all();
+          }
+          else{
+            cond_.wait(lock, [&]{ return !ready_; });
+          } 
+        }
+        else{
+          if(--count_ == 0){
+            ready_ = true;
+            cond_.notify_all();
+          }
+          else{
+            cond_.wait(lock, [&]{ return ready_; });
+          }
+        }
+      }
 
-       Func func;
-       void* arg;
-       uint32_t priority;
-     };
+  private:
+    std::condition_variable cond_;
+    std::mutex mutex_;
 
-     void push(Func func, void* arg, uint32_t priority){
-       mutex_.lock();
-       queue_.push(new Item(func, arg, priority));
-       mutex_.unlock();
-       
-       sem_.release();
-     }
-     
-     Item* get(){
-       if(!sem_.acquire()){
-         return nullptr;
-       }
-
-       mutex_.lock();
-       Item* item = queue_.top();
-       queue_.pop();
-       mutex_.unlock();
-       return item;
-     }
-
-   private:
-     struct Compare_{
-       bool operator()(const Item* i1, const Item* i2) const{
-         return i1->priority < i2->priority;
-       }
-     };
-     
-     typedef std::priority_queue<Item*, std::vector<Item*>, Compare_> Queue_;
-
-     Queue_ queue_;
-     CVSemaphore sem_;
-     std::mutex mutex_;
-   };
-
-   ThreadPool(size_t numThreads){
-     start(numThreads);
-   }
-
-   void push(Func func, void* arg, uint32_t priority){
-     queue_.push(func, arg, priority);
-   }
-
-   void start(size_t numThreads){
-     for(size_t i = 0; i < numThreads; ++i){
-       threadVec_.push_back(new std::thread(&ThreadPool::run_, this));  
-     }
-   }
-
-   void run_(){
-     for(;;){
-       Queue::Item* item = queue_.get();
-       assert(item);
-       item->func(item->arg);
-       delete item;
-     }
-   }
-
- private:
-   using ThreadVec = std::vector<std::thread*>;
-
-   Queue queue_;
-
-   std::mutex mutex_;
-
-   ThreadVec threadVec_;
- };
+    size_t initialCount_;
+    size_t count_;
+    bool ready_;
+  }; 
 
 } // namespace ares
 
- #endif // __ARES_THREAD_POOL_H__
+ #endif // __ARES_BARRIER_H__
