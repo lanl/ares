@@ -151,7 +151,7 @@ extern "C"{
     delete a;
   }
 
-  void __ares_release_synch(void* synch){
+  void __ares_await_synch(void* synch){
     auto s = reinterpret_cast<Synch*>(synch);
     s->release();
     delete s;

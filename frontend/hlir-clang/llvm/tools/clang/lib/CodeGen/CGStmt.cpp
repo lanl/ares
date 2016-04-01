@@ -31,11 +31,123 @@
 // +====== ares =========================
 #include "hlir/HLIR.h"
 #include <iostream>
+#include <unordered_set>
 // ======================================
 
 using namespace clang;
 using namespace CodeGen;
 using namespace ares;
+
+// +===== ares
+
+namespace{
+
+enum class ReduceType{
+  None,
+  Sum,
+  Product
+};
+
+class ParallelForVisitor : public StmtVisitor<ParallelForVisitor> {
+public: 
+
+  enum class OpType{
+    None,
+    LHS,
+    RHS
+  };
+
+  using VarSet = std::set<const VarDecl*>;
+
+  ParallelForVisitor(const VarDecl* reduceVar)
+  : reduceVar_(reduceVar){
+  
+  }
+
+  void VisitChildren(Stmt* S){
+    if(S){
+      for(Stmt::child_iterator I = S->child_begin(),
+          E = S->child_end(); I != E; ++I){
+        if(Stmt* child = *I){
+          Visit(child);
+        }
+      }
+    }
+  }
+
+  void VisitBinaryOperator(BinaryOperator* S){
+    switch(S->getOpcode()){
+    case BO_Assign:
+    case BO_MulAssign:
+    case BO_DivAssign:
+    case BO_RemAssign:
+    case BO_AddAssign:
+    case BO_SubAssign:
+    case BO_ShlAssign:
+    case BO_ShrAssign:
+    case BO_AndAssign:
+    case BO_XorAssign:
+    case BO_OrAssign:
+      opType_ = OpType::LHS;
+      break;
+    default:
+      opType_ = OpType::RHS;
+      break;
+    }
+
+    if(reduceVar_){
+      if(auto dr = dyn_cast<DeclRefExpr>(S->getLHS())){
+        if(dr->getDecl() == reduceVar_){
+          reduceOps_.insert(S);
+        }
+      }
+    }
+
+    Visit(S->getLHS());
+    opType_ = OpType::RHS;
+    Visit(S->getRHS());
+    opType_ = OpType::None;
+  }
+
+  void VisitUnaryOperator(UnaryOperator* S){
+    if(reduceVar_){
+      switch(S->getOpcode()){
+      case UO_PostInc:
+      case UO_PostDec:
+      case UO_PreInc:
+      case UO_PreDec:
+        if(auto dr = dyn_cast<DeclRefExpr>(S->getSubExpr())){
+          if(dr->getDecl() == reduceVar_){
+            reduceOps_.insert(S);
+          }
+        }
+        break;
+      default:
+        break;
+      }
+    }
+  }
+
+  void VisitStmt(Stmt* S){
+    VisitChildren(S);
+  }
+
+  const auto& reduceOps(){
+    return reduceOps_;
+  }
+
+private:
+  using ReduceOpSet = std::unordered_set<const Stmt*>;
+
+  ReduceOpSet reduceOps_;
+
+  const VarDecl* reduceVar_;
+  OpType opType_ = OpType::None;
+};
+
+// ====================
+
+} // namespace
 
 // +===== ares ==============================
 void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
@@ -164,6 +276,44 @@ void CodeGenFunction::EmitParallelReduce(const CXXForRangeStmt& S){
   //r->insertion()->dump();
 
   //LexicalScope TestScope(*this, body->getSourceRange());
+
+  ParallelForVisitor visitor(vr);
+  visitor.VisitStmt(const_cast<Stmt*>(body));
+
+  ReduceType reduceType = ReduceType::None;
+
+  for(auto op : visitor.reduceOps()){
+    if(auto bo = dyn_cast<BinaryOperator>(op)){
+      if(bo->getOpcode() == BO_AddAssign){
+        
+        assert(reduceType == ReduceType::None || 
+               reduceType == ReduceType::Sum);
+        
+        reduceType = ReduceType::Sum;
+      }
+      else if(bo->getOpcode() == BO_MulAssign){
+
+        assert(reduceType == ReduceType::None || 
+               reduceType == ReduceType::Product);
+
+        reduceType = ReduceType::Product;
+      }
+      else{
+        assert(false && "invalid reduce type");
+      }
+    }
+    else if(auto uo = dyn_cast<UnaryOperator>(op)){
+      (void)uo;
+      assert(reduceType == ReduceType::None || 
+             reduceType == ReduceType::Sum);
+      
+      reduceType = ReduceType::Sum;
+    }
+  }
+
+  assert(reduceType != ReduceType::None && "failed to find reduce operator");
+
+  r->setSum(reduceType == ReduceType::Sum);
 
   EmitStmt(body);
 

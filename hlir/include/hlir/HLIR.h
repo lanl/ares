@@ -1300,6 +1300,14 @@ namespace ares{
       return get<HLIRType>("reduceType");
     }
 
+    auto& sum() const{
+      return get<HLIRBoolean>("sum");
+    }
+
+    void setSum(const HLIRBoolean& flag){
+      (*this)["sum"] = flag;
+    }
+
     auto& reduceVar() const{
       return get<HLIRValue>("reduceVar");
     }
