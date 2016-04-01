@@ -276,7 +276,157 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
 }
 
 void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
+  using ValueVec = vector<Value*>;
+  using TypeVec = vector<llvm::Type*>;
+
   auto marker = r->get<HLIRInstruction>("marker");
+
+  LLVMContext& c = module_->getContext();
+  IRBuilder<> b(c);
+
+  Type* rt = r->reduceType();
+
+  TypeVec params = {i32Ty};
+
+  auto bft = FunctionType::get(rt, params, false);
+
+  params = {voidPtrTy};
+
+  auto ft = FunctionType::get(voidTy, params, false);
+
+  auto func =
+    Function::Create(ft,
+                     llvm::Function::ExternalLinkage,
+                     "reduce",
+                     module_);
+
+  auto aitr = func->arg_begin();
+  aitr->setName("args.ptr");
+  Value* argsVoidPtr = aitr;
+
+  BasicBlock* block = BasicBlock::Create(c, "entry", func);
+
+  b.SetInsertPoint(block);
+
+  TypeVec fields;
+  fields.push_back(PointerType::get(rt, 0));
+  fields.push_back(voidPtrTy);
+  fields.push_back(i32Ty);
+  fields.push_back(i32Ty);
+  fields.push_back(i32Ty);
+  fields.push_back(bft);
+
+  StructType* argsType = StructType::create(c, fields, "struct.args");
+
+  Value* argsPtr = b.CreateBitCast(argsVoidPtr, PointerType::get(argsType, 0));
+
+  Value* partialSums = b.CreateStructGEP(nullptr, argsPtr, 0);
+  partialSums = b.CreateLoad(partialSums);
+
+  Value* barrier = b.CreateStructGEP(nullptr, argsPtr, 1);
+  barrier = b.CreateLoad(barrier);
+
+  Value* threadIndex = b.CreateStructGEP(nullptr, argsPtr, 2);
+  threadIndex = b.CreateLoad(threadIndex);
+
+  Value* numThreads = b.CreateStructGEP(nullptr, argsPtr, 3);
+  numThreads = b.CreateLoad(numThreads);
+
+  Value* size = b.CreateStructGEP(nullptr, argsPtr, 4);
+  size = b.CreateLoad(size);
+
+  Value* bodyFunc = b.CreateStructGEP(nullptr, argsPtr, 5);
+  bodyFunc = b.CreateLoad(bodyFunc);
+
+  Value* zero = ConstantInt::get(i32Ty, 0);
+  Value* one = ConstantInt::get(i32Ty, 1);
+  Value* two = ConstantInt::get(i32Ty, 2);
+
+  Value* q = b.CreateUDiv(size, numThreads);
+
+  Value* start = b.CreateMul(q, threadIndex);
+
+  Value* cond = b.CreateICmpEQ(threadIndex, b.CreateSub(numThreads, one));
+
+  Value* end = 
+    b.CreateSelect(cond, size, b.CreateMul(q, b.CreateAdd(threadIndex, one)));
+
+  Function* barrierFunc = getFunction("__ares_wait_barrier", {voidPtrTy});
+
+  ValueVec args = {barrier};
+
+  b.CreateCall(barrierFunc, args);
+
+  Value* p2Ptr = b.CreateAlloca(i32Ty);
+
+  b.CreateStore(two, p2Ptr);
+
+  Value* iPtr = b.CreateAlloca(i32Ty);
+  b.CreateStore(one, iPtr);
+
+  BasicBlock* condBlock = BasicBlock::Create(c, "cond.block", func);
+  b.CreateBr(condBlock);
+
+  b.SetInsertPoint(condBlock);
+
+  Value* i = b.CreateLoad(iPtr);
+
+  Value* cond2 = b.CreateICmpULE(i, numThreads);
+
+  BasicBlock* loopBlock = BasicBlock::Create(c, "loop.block", func);
+
+  BasicBlock* mergeBlock = BasicBlock::Create(c, "merge.block", func);
+
+  b.CreateCondBr(cond2, loopBlock, mergeBlock);
+
+  b.SetInsertPoint(loopBlock);
+
+  Value* p2 = b.CreateLoad(p2Ptr);
+
+  Value* mod = b.CreateURem(threadIndex, p2);
+
+  Value* cond3 = b.CreateICmpEQ(mod, zero);
+
+  Value* ti1 = b.CreateAdd(threadIndex, i);
+
+  Value* cond4 = b.CreateICmpULT(ti1, numThreads);
+
+  Value* cond5 = b.CreateAnd(cond3, cond4);
+
+  BasicBlock* condBlock2 = BasicBlock::Create(c, "cond.block", func);
+
+  BasicBlock* mergeBlock2 = BasicBlock::Create(c, "merge.block", func);
+
+  b.CreateCondBr(cond5, condBlock2, mergeBlock2);
+
+  b.SetInsertPoint(condBlock2);
+
+  Value* idx1 = b.CreateGEP(partialSums, threadIndex);
+  Value* idx2 = b.CreateGEP(partialSums, ti1);
+  Value* v1 = b.CreateLoad(idx1);
+  Value* v2 = b.CreateLoad(idx2);
+  Value* va = b.CreateAdd(v1, v2);
+  b.CreateStore(va, idx1);
+
+  b.CreateBr(mergeBlock2);
+
+  b.SetInsertPoint(mergeBlock2);
+
+  p2 = b.CreateMul(p2, two);
+  b.CreateStore(p2, p2Ptr);
+
+  b.CreateCall(barrierFunc, args);
+
+  i = b.CreateMul(i, two);
+  b.CreateStore(i, iPtr);
+
+  b.CreateBr(condBlock);
+
+  b.SetInsertPoint(mergeBlock);
+
+  b.CreateRetVoid();
+
+  //func->dump();
 
   marker->removeFromParent();
 }
@@ -444,6 +594,10 @@ HLIRParallelFor::HLIRParallelFor(HLIRModule* module)
   (*this)["body"] = f;  
 }
 
+HLIRFunction& HLIRParallelFor::body(){
+  return get<HLIRFunction>("body");
+}
+
 HLIRParallelReduce::HLIRParallelReduce(HLIRModule* module,
   const HLIRType& reduceType)
   : HLIRConstruct(module){
@@ -508,7 +662,7 @@ HLIRParallelReduce::HLIRParallelReduce(HLIRModule* module,
   (*this)["body"] = f;  
 }
 
-HLIRFunction& HLIRParallelFor::body(){
+HLIRFunction& HLIRParallelReduce::body(){
   return get<HLIRFunction>("body");
 }
 

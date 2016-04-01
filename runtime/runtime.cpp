@@ -126,11 +126,17 @@ extern "C"{
   }
 
   void* __ares_create_barrier(uint32_t count){
-    assert(false && "unimplemented");
+    return new Barrier(count);
   }
 
   void __ares_wait_barrier(void* barrier){
-    assert(false && "unimplemented");
+    auto b = static_cast<Barrier*>(barrier);
+    b->wait();
+  }
+
+  void __ares_delete_barrier(void* barrier){
+    auto b = static_cast<Barrier*>(barrier);
+    delete b;
   }
 
   void __ares_queue_func(void* synch, void* args, void* fp,
