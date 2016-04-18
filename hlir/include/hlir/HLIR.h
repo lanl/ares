@@ -191,6 +191,18 @@ namespace ares{
     using Super = HLIRScalar<bool>;
 
     HLIRBoolean(bool value) : Super(value){}
+
+    HLIRBoolean(llvm::Value* value){
+      auto ci = llvm::dyn_cast<llvm::ConstantInt>(value);
+      if(!ci){
+        HLIR_ERROR("not a boolean");
+      }
+      val_ = ci->getSExtValue();
+    }
+
+    virtual HLIRBoolean* copy() const override{
+      return new HLIRBoolean(*this);
+    }
   };
 
   class HLIRInteger : public HLIRScalar<int64_t>{

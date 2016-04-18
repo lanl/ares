@@ -286,7 +286,7 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   Type* rt = r->reduceType();
 
-  TypeVec params = {i32Ty};
+  TypeVec params = {voidPtrTy};
 
   auto bft = FunctionType::get(rt, params, false);
 
@@ -315,7 +315,7 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   fields.push_back(i32Ty);
   fields.push_back(i32Ty);
   fields.push_back(i32Ty);
-  fields.push_back(bft);
+  fields.push_back(PointerType::get(bft, 0));
   fields.push_back(voidPtrTy);
 
   StructType* argsType = StructType::create(c, fields, "struct.args");
@@ -407,7 +407,7 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   Value* rv = b.CreateLoad(rptr);
 
-  ValueVec args2 = {i, bodyArgs};
+  ValueVec args2 = {bodyArgs};
 
   Value* bi = b.CreateCall(bodyFunc, args2);
 
@@ -489,7 +489,15 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   Value* idx2 = b.CreateGEP(partialSums, ti1);
   Value* v1 = b.CreateLoad(idx1);
   Value* v2 = b.CreateLoad(idx2);
-  Value* va = b.CreateAdd(v1, v2);
+  Value* va;
+
+  if(rt->isFloatingPointTy()){
+    va = b.CreateFAdd(v1, v2);
+  }
+  else{
+    va = b.CreateAdd(v1, v2);
+  }
+
   b.CreateStore(va, idx1);
 
   b.CreateBr(mergeBlock2);
@@ -549,6 +557,8 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.SetInsertPoint(marker);
 
+  Function* parentFunc = marker->getParent()->getParent();
+
   Value* captureArgsPtr = b.CreateAlloca(captureArgsType);
 
   for(size_t i = 0; i < v.size(); ++i){
@@ -582,15 +592,15 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   Value* indexPtr = b.CreateAlloca(i32Ty, nullptr, "index.ptr");
   b.CreateStore(start, indexPtr);
 
+  numThreads = ConstantInt::get(i32Ty, 8);
+
   Value* partialSumsPtr = b.CreateAlloca(rt, numThreads);
 
-  loopBlock = BasicBlock::Create(c, "pfor.queue.loop", func);
+  loopBlock = BasicBlock::Create(c, "pfor.queue.loop", parentFunc);
   b.CreateBr(loopBlock);
   b.SetInsertPoint(loopBlock);
 
   Value* reduceArgs = b.CreateAlloca(argsType);
-  
-  numThreads = ConstantInt::get(i32Ty, 8);
 
   Value* index = b.CreateLoad(indexPtr);
 
@@ -613,14 +623,15 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   b.CreateStore(n, argsIdx);
 
   argsIdx = b.CreateStructGEP(argsType, reduceArgs, 6);
-  b.CreateStore(func, argsIdx);
+  b.CreateStore(r->body(), argsIdx);
 
   argsIdx = b.CreateStructGEP(argsType, reduceArgs, 7);
-  b.CreateStore(captureArgsPtr, argsIdx);
+  Value* captureArgsVoidPtr = b.CreateBitCast(captureArgsPtr, voidPtrTy);
+  b.CreateStore(captureArgsVoidPtr, argsIdx);
 
   b.CreateCall(queueFunc, {synchPtr,
                            b.CreateBitCast(reduceArgs, voidPtrTy),
-                           b.CreateBitCast(bodyFunc, voidPtrTy),
+                           b.CreateBitCast(r->body(), voidPtrTy),
                            index, one});
 
   Value* nextIndex = b.CreateAdd(index, one);
@@ -629,9 +640,11 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   
   cond = b.CreateICmpULT(nextIndex, end);
   
-  BasicBlock* exitBlock = BasicBlock::Create(c, "pfor.queue.exit", func);
+  BasicBlock* exitBlock = BasicBlock::Create(c, "pfor.queue.exit", parentFunc);
   
   b.CreateCondBr(cond, loopBlock, exitBlock);
+
+  block = marker->getParent();
   
   BasicBlock* blockAfter = block->splitBasicBlock(*marker, "pfor.merge");
 
@@ -643,11 +656,7 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.CreateCall(awaitFunc, {synchPtr});
   
-  b.CreateBr(blockAfter);
-  
-  //func->dump();
-
-  marker->removeFromParent();
+  b.CreateBr(blockAfter);  
 }
 
 void HLIRModule::lowerTask_(HLIRTask* task){
@@ -837,7 +846,7 @@ HLIRParallelReduce::HLIRParallelReduce(HLIRModule* module,
   Function* finishFunc = 
     module_->getFunction("__ares_finish_func", {module_->voidPtrTy});
 
-  auto aitr = func->arg_begin();
+  auto aitr = func->arg_begin();  
   aitr->setName("args.ptr");
   Value* argsVoidPtr = aitr++;
     
