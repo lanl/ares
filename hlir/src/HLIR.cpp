@@ -656,7 +656,9 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.CreateCall(awaitFunc, {synchPtr});
   
-  b.CreateBr(blockAfter);  
+  b.CreateBr(blockAfter);
+
+  //func->dump();
 }
 
 void HLIRModule::lowerTask_(HLIRTask* task){

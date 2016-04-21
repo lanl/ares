@@ -15,5 +15,7 @@ int main(int argc, char** argv){
     sum += 1;
   }
 
+  cout << "sum = " << sum << endl;
+
   return 0;
 }

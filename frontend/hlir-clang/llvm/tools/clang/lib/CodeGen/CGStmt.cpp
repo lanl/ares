@@ -252,6 +252,8 @@ void CodeGenFunction::EmitParallelReduce(const CXXForRangeStmt& S){
   auto vr = dyn_cast<VarDecl>(dr->getDecl());
   assert(vr);
 
+  Address oldVR = GetAddrOfLocalVar(vr);
+
   LocalDeclMap.erase(vr);
   setAddrOfLocalVar(vr, aresAddr(r->reduceVar()));
   
@@ -319,6 +321,11 @@ void CodeGenFunction::EmitParallelReduce(const CXXForRangeStmt& S){
 
   B.SetInsertPoint(prevBlock, prevPoint);
 
+  AllocaInsertPt = prevAllocaPt;
+
+  LocalDeclMap.erase(vr);
+  setAddrOfLocalVar(vr, oldVR);
+
   Value* start = EmitAnyExprToTemp(ce->getArg(0)).getScalarVal();
   Value* end = EmitAnyExprToTemp(ce->getArg(1)).getScalarVal();
   //Value* var = EmitAnyExprToTemp(ce->getArg(2)).getScalarVal();
@@ -326,8 +333,6 @@ void CodeGenFunction::EmitParallelReduce(const CXXForRangeStmt& S){
   r->setRange(start, end);
   //r->setVar(var);
   r->insert(B);
-
-  AllocaInsertPt = prevAllocaPt;
   
   //std::cout << *mod << std::endl;
   
