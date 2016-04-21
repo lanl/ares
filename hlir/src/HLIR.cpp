@@ -284,6 +284,10 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   LLVMContext& c = module_->getContext();
   IRBuilder<> b(c);
 
+  Function* debugFunc = getFunction("__ares_debug", TypeVec());
+  Function* debugPtrFunc = getFunction("__ares_debug_ptr", {voidPtrTy});
+  Function* debugI32Func = getFunction("__ares_debug_i32", {i32Ty});
+
   Type* rt = r->reduceType();
 
   TypeVec params = {voidPtrTy};
@@ -302,11 +306,20 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   auto aitr = func->arg_begin();
   aitr->setName("args.ptr");
-  Value* argsVoidPtr = aitr;
+  Value* funcArgsVoidPtr = aitr;
 
   BasicBlock* block = BasicBlock::Create(c, "entry", func);
 
   b.SetInsertPoint(block);
+
+  TypeVec fields2 = {voidPtrTy, i32Ty, voidPtrTy};
+  StructType* funcArgsType = StructType::create(c, fields2, "struct.func_args");
+  
+  Value* funcArgsPtr = 
+  b.CreateBitCast(funcArgsVoidPtr, PointerType::get(funcArgsType, 0));
+
+  Value* argsVoidPtr = b.CreateStructGEP(nullptr, funcArgsPtr, 2);
+  argsVoidPtr = b.CreateLoad(argsVoidPtr);
 
   TypeVec fields;
   fields.push_back(PointerType::get(rt, 0));
@@ -351,6 +364,8 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   Value* zero = ConstantInt::get(i32Ty, 0);
   Value* one = ConstantInt::get(i32Ty, 1);
   Value* two = ConstantInt::get(i32Ty, 2);
+
+  b.CreateCall(debugI32Func, {numThreads});
 
   Value* q = b.CreateUDiv(size, numThreads);
 
@@ -516,10 +531,10 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.SetInsertPoint(mergeBlock);
 
-  Function* awaitFunc = getFunction("__ares_await_synch", {voidPtrTy});
+  Function* signalFunc = getFunction("__ares_signal_synch", {voidPtrTy});
   args = {synch};
 
-  b.CreateCall(awaitFunc, args);
+  b.CreateCall(signalFunc, args);
 
   b.CreateRetVoid();
 
@@ -585,24 +600,24 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   Value* n = b.CreateSub(end, start, "n");
 
-  Value* synchPtr = b.CreateCall(createSynchFunc, {n}, "synch.ptr");
+  numThreads = ConstantInt::get(i32Ty, 8);
 
-  Value* barrierPtr = b.CreateCall(createSynchFunc, {n}, "synch.ptr");
+  Value* synchPtr = b.CreateCall(createSynchFunc, {numThreads}, "synch.ptr");
+
+  Value* barrierPtr = b.CreateCall(createBarrierFunc, {numThreads}, "barrier.ptr");
 
   Value* indexPtr = b.CreateAlloca(i32Ty, nullptr, "index.ptr");
   b.CreateStore(start, indexPtr);
 
-  numThreads = ConstantInt::get(i32Ty, 8);
+  Value* partialSumsPtr = b.CreateAlloca(rt, numThreads, "partial.sums");
 
-  Value* partialSumsPtr = b.CreateAlloca(rt, numThreads);
-
-  loopBlock = BasicBlock::Create(c, "pfor.queue.loop", parentFunc);
+  loopBlock = BasicBlock::Create(c, "preduce.queue.loop", parentFunc);
   b.CreateBr(loopBlock);
   b.SetInsertPoint(loopBlock);
 
-  Value* reduceArgs = b.CreateAlloca(argsType);
+  Value* reduceArgs = b.CreateAlloca(argsType, nullptr, "reduce.args");
 
-  Value* index = b.CreateLoad(indexPtr);
+  Value* index = b.CreateLoad(indexPtr, "index");
 
   Value* argsIdx = b.CreateStructGEP(argsType, reduceArgs, 0);
   b.CreateStore(partialSumsPtr, argsIdx);
@@ -631,22 +646,22 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.CreateCall(queueFunc, {synchPtr,
                            b.CreateBitCast(reduceArgs, voidPtrTy),
-                           b.CreateBitCast(r->body(), voidPtrTy),
+                           b.CreateBitCast(func, voidPtrTy),
                            index, one});
 
-  Value* nextIndex = b.CreateAdd(index, one);
+  Value* nextIndex = b.CreateAdd(index, one, "next.index");
   
   b.CreateStore(nextIndex, indexPtr);
   
-  cond = b.CreateICmpULT(nextIndex, end);
+  cond = b.CreateICmpULT(nextIndex, numThreads, "cond");
   
-  BasicBlock* exitBlock = BasicBlock::Create(c, "pfor.queue.exit", parentFunc);
+  BasicBlock* exitBlock = BasicBlock::Create(c, "preduce.queue.exit", parentFunc);
   
   b.CreateCondBr(cond, loopBlock, exitBlock);
 
   block = marker->getParent();
   
-  BasicBlock* blockAfter = block->splitBasicBlock(*marker, "pfor.merge");
+  BasicBlock* blockAfter = block->splitBasicBlock(*marker, "preduce.merge");
 
   block->getTerminator()->removeFromParent();
   
@@ -654,11 +669,13 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   
   b.SetInsertPoint(exitBlock);
 
+  Function* awaitFunc = getFunction("__ares_await_synch", {voidPtrTy});
+
   b.CreateCall(awaitFunc, {synchPtr});
   
   b.CreateBr(blockAfter);
 
-  //func->dump();
+  //func->getParent()->dump();
 }
 
 void HLIRModule::lowerTask_(HLIRTask* task){
@@ -845,9 +862,6 @@ HLIRParallelReduce::HLIRParallelReduce(HLIRModule* module,
                      "hlir.parallel_reduce.body",
                      module_->module());
 
-  Function* finishFunc = 
-    module_->getFunction("__ares_finish_func", {module_->voidPtrTy});
-
   auto aitr = func->arg_begin();  
   aitr->setName("args.ptr");
   Value* argsVoidPtr = aitr++;
@@ -862,19 +876,12 @@ HLIRParallelReduce::HLIRParallelReduce(HLIRModule* module,
     
   Value* argsPtr = b.CreateBitCast(argsVoidPtr, llvm::PointerType::get(argsType, 0), "args.ptr");
 
-  Value* synchPtr = b.CreateStructGEP(argsType, argsPtr, 0);
-  synchPtr = b.CreateLoad(synchPtr, "synch.ptr");
-
   Value* indexPtr = b.CreateStructGEP(argsType, argsPtr, 1, "index.ptr");
   
   Value* funcArgsPtr = b.CreateStructGEP(argsType, argsPtr, 2, "funcArgs.ptr");
   funcArgsPtr = b.CreateLoad(funcArgsPtr);
    
   Instruction* placeholder = module_->createNoOp();
-
-  Value* synchVoidPtr = b.CreateBitCast(synchPtr, module_->voidPtrTy);
-
-  b.CreateCall(finishFunc, {argsVoidPtr});
 
   Instruction* retVal = b.CreateLoad(reduceVar);
 

@@ -68,12 +68,14 @@
 using namespace std;
 using namespace ares;
 
-#define np(X) cout << __FILE__ << ":" << __LINE__ << ": " << \
-__PRETTY_FUNCTION__ << ": " << #X << " = " << (X) << std::endl
+#define np(X) _logMutex.lock(); cout << __FILE__ << ":" << __LINE__ << ": " << \
+__PRETTY_FUNCTION__ << ": " << #X << " = " << (X) << std::endl; _logMutex.unlock()
 
 namespace{
 
-  static const size_t NUM_THREADS = 32;
+  mutex _logMutex;
+
+  static const size_t NUM_THREADS = 1;
 
   class Synch{
   public:
@@ -113,8 +115,6 @@ namespace{
 
   ThreadPool* _threadPool = new ThreadPool(NUM_THREADS);
 
-  mutex _logMutex;
-
   Communicator* _communicator = nullptr;
 
 } // namespace
@@ -122,6 +122,7 @@ namespace{
 extern "C"{
 
   void* __ares_create_synch(uint32_t count){
+    np(count);
     return new Synch(count - 1);
   }
 
@@ -151,9 +152,14 @@ extern "C"{
     delete a;
   }
 
+  void __ares_signal_synch(void* sync){
+    auto s = reinterpret_cast<Synch*>(sync);
+    s->release();
+  }
+
   void __ares_await_synch(void* synch){
     auto s = reinterpret_cast<Synch*>(synch);
-    s->release();
+    s->await();
     delete s;
   }
 
@@ -176,6 +182,15 @@ extern "C"{
   void __ares_task_release_future(void* argsPtr){
     auto args = reinterpret_cast<TaskArg*>(argsPtr);
     args->futureSync->release();
+  }
+
+  void __ares_debug(){
+  }
+
+  void __ares_debug_ptr(void* ptr){
+  }
+
+  void __ares_debug_i32(int32_t x){
   }
 
 } // extern "C"
