@@ -122,7 +122,6 @@ namespace{
 extern "C"{
 
   void* __ares_create_synch(uint32_t count){
-    np(count);
     return new Synch(count - 1);
   }
 
@@ -185,12 +184,18 @@ extern "C"{
   }
 
   void __ares_debug(){
+    np(9);
   }
 
   void __ares_debug_ptr(void* ptr){
   }
 
   void __ares_debug_i32(int32_t x){
+    np(x);
+  }
+
+  void __ares_debug_f32(float x){
+    np(x);
   }
 
 } // extern "C"

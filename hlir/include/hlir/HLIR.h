@@ -1324,6 +1324,14 @@ namespace ares{
       return get<HLIRValue>("reduceVar");
     }
 
+    auto& reduceResult() const{
+      return get<HLIRValue>("reduceResult");
+    }
+
+    void setReduceResult(const HLIRValue& value){
+      (*this)["reduceResult"] = value;
+    }
+
     auto& insertion() const{
       return get<HLIRInstruction>("insertion");
     }
@@ -1349,6 +1357,8 @@ namespace ares{
 
       (*this)["range"] = HLIRVector() << start << end;
     }
+
+
 
     auto& range() const{
       return get<HLIRVector>("range");

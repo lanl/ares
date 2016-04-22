@@ -254,6 +254,8 @@ void CodeGenFunction::EmitParallelReduce(const CXXForRangeStmt& S){
 
   Address oldVR = GetAddrOfLocalVar(vr);
 
+  r->setReduceResult(oldVR.getPointer());
+
   LocalDeclMap.erase(vr);
   setAddrOfLocalVar(vr, aresAddr(r->reduceVar()));
   

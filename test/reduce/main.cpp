@@ -5,7 +5,7 @@
 using namespace std;
 using namespace ares;
 
-const size_t SIZE = 100;
+const size_t SIZE = 10;
 
 int main(int argc, char** argv){
 

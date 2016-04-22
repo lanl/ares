@@ -284,10 +284,6 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   LLVMContext& c = module_->getContext();
   IRBuilder<> b(c);
 
-  Function* debugFunc = getFunction("__ares_debug", TypeVec());
-  Function* debugPtrFunc = getFunction("__ares_debug_ptr", {voidPtrTy});
-  Function* debugI32Func = getFunction("__ares_debug_i32", {i32Ty});
-
   Type* rt = r->reduceType();
 
   TypeVec params = {voidPtrTy};
@@ -297,6 +293,8 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   params = {voidPtrTy};
 
   auto ft = FunctionType::get(voidTy, params, false);
+
+  // =================== top-level reduce func
 
   auto func =
     Function::Create(ft,
@@ -364,8 +362,6 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   Value* zero = ConstantInt::get(i32Ty, 0);
   Value* one = ConstantInt::get(i32Ty, 1);
   Value* two = ConstantInt::get(i32Ty, 2);
-
-  b.CreateCall(debugI32Func, {numThreads});
 
   Value* q = b.CreateUDiv(size, numThreads);
 
@@ -447,9 +443,16 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.CreateStore(si, rptr);
 
+  b.CreateStore(b.CreateAdd(i, one), iPtr);
+
   b.CreateBr(condBlock5);
 
   b.SetInsertPoint(mergeBlock5);
+
+  Value* res = b.CreateLoad(rptr);
+
+  Value* idx1 = b.CreateGEP(partialSums, threadIndex);
+  b.CreateStore(res, idx1);
 
   Function* barrierFunc = getFunction("__ares_wait_barrier", {voidPtrTy});
 
@@ -500,7 +503,6 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.SetInsertPoint(condBlock2);
 
-  Value* idx1 = b.CreateGEP(partialSums, threadIndex);
   Value* idx2 = b.CreateGEP(partialSums, ti1);
   Value* v1 = b.CreateLoad(idx1);
   Value* v2 = b.CreateLoad(idx2);
@@ -572,6 +574,8 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.SetInsertPoint(marker);
 
+  // =================== invocation / queueing of reduce
+
   Function* parentFunc = marker->getParent()->getParent();
 
   Value* captureArgsPtr = b.CreateAlloca(captureArgsType);
@@ -600,7 +604,7 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   Value* n = b.CreateSub(end, start, "n");
 
-  numThreads = ConstantInt::get(i32Ty, 8);
+  numThreads = ConstantInt::get(i32Ty, 1);
 
   Value* synchPtr = b.CreateCall(createSynchFunc, {numThreads}, "synch.ptr");
 
@@ -673,9 +677,83 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.CreateCall(awaitFunc, {synchPtr});
   
+  Value* kPtr = b.CreateAlloca(i32Ty);
+  b.CreateStore(zero, kPtr);
+
+  Value* resultPtr = b.CreateAlloca(rt);
+
+  Value* result;
+
+  if(rt->isFloatingPointTy()){
+    if(r->sum()){
+      result = ConstantFP::get(rt, 0.0);
+    }
+    else{
+      result = ConstantFP::get(rt, 1.0);
+    }
+  }
+  else{
+    if(r->sum()){
+      result = ConstantInt::get(rt, 0);
+    }
+    else{
+      result = ConstantInt::get(rt, 1);
+    }
+  }
+
+  b.CreateStore(result, resultPtr);
+
+  BasicBlock* condBlock9 = BasicBlock::Create(c, "cond.block", parentFunc);
+  b.CreateBr(condBlock9);
+
+  b.SetInsertPoint(condBlock9);
+
+  Value* k = b.CreateLoad(kPtr);
+
+  Value* endCond9 = b.CreateICmpULT(k, numThreads);
+
+  BasicBlock* loopBlock9 = BasicBlock::Create(c, "loop.block", parentFunc);
+  BasicBlock* mergeBlock9 = BasicBlock::Create(c, "merge.block", parentFunc);
+
+  b.CreateCondBr(endCond9, loopBlock9, mergeBlock9);
+
+  b.SetInsertPoint(loopBlock9);
+
+  Value* pi = b.CreateGEP(partialSumsPtr, k);
+  pi = b.CreateLoad(pi);
+
+  result = b.CreateLoad(resultPtr);
+
+  if(rt->isFloatingPointTy()){
+    if(r->sum()){
+      result = b.CreateFAdd(result, pi);
+    }
+    else{
+      result = b.CreateFMul(result, pi);
+    }
+  }
+  else{
+    if(r->sum()){
+      result = b.CreateAdd(result, pi);
+    }
+    else{
+      result = b.CreateMul(result, pi);
+    }
+  }
+
+  b.CreateStore(result, resultPtr);
+
+  b.CreateStore(b.CreateAdd(k, one), kPtr);
+
+  b.CreateBr(condBlock9);
+
+  b.SetInsertPoint(mergeBlock9);
+
+  b.CreateStore(b.CreateLoad(resultPtr), r->reduceResult());
+
   b.CreateBr(blockAfter);
 
-  //func->getParent()->dump();
+//  func->getParent()->dump();
 }
 
 void HLIRModule::lowerTask_(HLIRTask* task){
