@@ -98,6 +98,8 @@ namespace{
     }
   }
 
+  static const size_t REDUCE_THREADS = 8;
+
 } // namespace
 
 HLIRModule* HLIRModule::getModule(Module* module){
@@ -584,7 +586,7 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   Value* n = b.CreateSub(end, start, "n");
 
-  numThreads = ConstantInt::get(i32Ty, 1);
+  numThreads = ConstantInt::get(i32Ty, REDUCE_THREADS);
 
   Value* synchPtr = b.CreateCall(createSynchFunc, {numThreads}, "synch.ptr");
 
@@ -662,81 +664,9 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.CreateCall(awaitFunc, {synchPtr});
   
-  Value* kPtr = b.CreateAlloca(i32Ty);
-  b.CreateStore(zero, kPtr);
-
-  Value* resultPtr = b.CreateAlloca(rt);
-
-  Value* result;
-
-  if(rt->isFloatingPointTy()){
-    if(r->sum()){
-      result = ConstantFP::get(rt, 0.0);
-    }
-    else{
-      result = ConstantFP::get(rt, 1.0);
-    }
-  }
-  else{
-    if(r->sum()){
-      result = ConstantInt::get(rt, 0);
-    }
-    else{
-      result = ConstantInt::get(rt, 1);
-    }
-  }
-
-  b.CreateStore(result, resultPtr);
-
-  BasicBlock* condBlock9 = BasicBlock::Create(c, "cond.block", parentFunc);
-  b.CreateBr(condBlock9);
-
-  b.SetInsertPoint(condBlock9);
-
-  Value* k = b.CreateLoad(kPtr);
-
-  Value* endCond9 = b.CreateICmpULT(k, numThreads);
-
-  BasicBlock* loopBlock9 = BasicBlock::Create(c, "loop.block", parentFunc);
-  BasicBlock* mergeBlock9 = BasicBlock::Create(c, "merge.block", parentFunc);
-
-  b.CreateCondBr(endCond9, loopBlock9, mergeBlock9);
-
-  b.SetInsertPoint(loopBlock9);
-
-  Value* pi = b.CreateGEP(partialSumsPtr, k);
-  pi = b.CreateLoad(pi);
-
-  result = b.CreateLoad(resultPtr);
-
-  if(rt->isFloatingPointTy()){
-    if(r->sum()){
-      result = b.CreateFAdd(result, pi);
-    }
-    else{
-      result = b.CreateFMul(result, pi);
-    }
-  }
-  else{
-    if(r->sum()){
-      result = b.CreateAdd(result, pi);
-    }
-    else{
-      result = b.CreateMul(result, pi);
-    }
-  }
-
-  b.CreateStore(result, resultPtr);
-
-  b.CreateStore(b.CreateAdd(k, one), kPtr);
-
-  b.CreateBr(condBlock9);
-
-  b.SetInsertPoint(mergeBlock9);
+  b.CreateStore(b.CreateLoad(partialSumsPtr), r->reduceResult());
 
   b.CreateCall(freeFunc, {partialSumsVoidPtr});
-
-  b.CreateStore(b.CreateLoad(resultPtr), r->reduceResult());
 
   b.CreateBr(blockAfter);
 
