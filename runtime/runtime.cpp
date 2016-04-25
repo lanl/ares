@@ -75,12 +75,12 @@ namespace{
 
   mutex _logMutex;
 
-  static const size_t NUM_THREADS = 1;
+  static const size_t NUM_THREADS = 32;
 
   class Synch{
   public:
     Synch(int count)
-    : sem_(-count){}
+    : sem_(1 - count){}
 
     void release(){
       sem_.release();
@@ -121,8 +121,16 @@ namespace{
 
 extern "C"{
 
+  void* __ares_alloc(uint64_t bytes){
+    return malloc(bytes);
+  }
+
+  void __ares_free(void* ptr){
+    free(ptr);
+  }
+
   void* __ares_create_synch(uint32_t count){
-    return new Synch(count - 1);
+    return new Synch(count);
   }
 
   void* __ares_create_barrier(uint32_t count){
@@ -160,10 +168,6 @@ extern "C"{
     auto s = reinterpret_cast<Synch*>(synch);
     s->await();
     delete s;
-  }
-
-  void* __ares_alloc(uint64_t bytes){
-    return malloc(bytes);
   }
 
   void __ares_task_queue(void* funcPtr, void* argsPtr){

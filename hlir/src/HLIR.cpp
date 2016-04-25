@@ -286,9 +286,12 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   Type* rt = r->reduceType();
 
-  TypeVec params = {voidPtrTy};
+  Function* allocFunc = getFunction("__ares_alloc", {i64Ty}, voidPtrTy);
+  Function* freeFunc = getFunction("__ares_free", {voidPtrTy});
 
-  auto bft = FunctionType::get(rt, params, false);
+  TypeVec params = {voidPtrTy, PointerType::get(rt, 0), i32Ty};
+
+  auto bft = FunctionType::get(voidTy, params, false);
 
   params = {voidPtrTy};
 
@@ -416,32 +419,9 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.SetInsertPoint(loopBlock5);
 
-  Value* rv = b.CreateLoad(rptr);
-
-  ValueVec args2 = {bodyArgs};
+  ValueVec args2 = {bodyArgs, rptr, i};
 
   Value* bi = b.CreateCall(bodyFunc, args2);
-
-  Value* si;
-
-  if(rt->isFloatingPointTy()){
-    if(r->sum()){
-      si = b.CreateFAdd(rv, bi);
-    }
-    else{
-      si = b.CreateFMul(rv, bi);
-    }
-  }
-  else{
-    if(r->sum()){
-      si = b.CreateAdd(rv, bi);
-    }
-    else{
-      si = b.CreateMul(rv, bi);
-    }
-  }
-
-  b.CreateStore(si, rptr);
 
   b.CreateStore(b.CreateAdd(i, one), iPtr);
 
@@ -540,6 +520,8 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
 
   b.CreateRetVoid();
 
+  // =================== invocation / queueing of reduce
+
   TypeVec captureFields;
 
   vector<Instruction*> v;
@@ -573,8 +555,6 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   }
 
   b.SetInsertPoint(marker);
-
-  // =================== invocation / queueing of reduce
 
   Function* parentFunc = marker->getParent()->getParent();
 
@@ -613,7 +593,12 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   Value* indexPtr = b.CreateAlloca(i32Ty, nullptr, "index.ptr");
   b.CreateStore(start, indexPtr);
 
-  Value* partialSumsPtr = b.CreateAlloca(rt, numThreads, "partial.sums");
+  Value* bytes = 
+  b.CreateMul(numThreads, ConstantInt::get(i32Ty, rt->getPrimitiveSizeInBits()/8));
+  bytes = b.CreateZExt(bytes, i64Ty);
+
+  Value* partialSumsVoidPtr = b.CreateCall(allocFunc, {bytes});
+  Value* partialSumsPtr = b.CreateBitCast(partialSumsVoidPtr, PointerType::get(rt, 0));
 
   loopBlock = BasicBlock::Create(c, "preduce.queue.loop", parentFunc);
   b.CreateBr(loopBlock);
@@ -748,6 +733,8 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   b.CreateBr(condBlock9);
 
   b.SetInsertPoint(mergeBlock9);
+
+  b.CreateCall(freeFunc, {partialSumsVoidPtr});
 
   b.CreateStore(b.CreateLoad(resultPtr), r->reduceResult());
 
@@ -930,9 +917,10 @@ HLIRParallelReduce::HLIRParallelReduce(HLIRModule* module,
   auto& b = module_->builder();
   auto& c = module_->context();
     
-  TypeVec params = {module_->voidPtrTy};
+  TypeVec params = 
+  {module_->voidPtrTy, PointerType::get(reduceType, 0), module_->i32Ty};
   
-  auto funcType = FunctionType::get(reduceType, params, false);
+  auto funcType = FunctionType::get(module_->voidTy, params, false);
 
   Function* func =
     Function::Create(funcType,
@@ -941,36 +929,29 @@ HLIRParallelReduce::HLIRParallelReduce(HLIRModule* module,
                      module_->module());
 
   auto aitr = func->arg_begin();  
+
   aitr->setName("args.ptr");
   Value* argsVoidPtr = aitr++;
+
+  aitr->setName("partial.ptr");
+  Value* partial = aitr++;
+
+  aitr->setName("index");
+  Value* index = aitr++;
     
   BasicBlock* entry = BasicBlock::Create(c, "entry", func);
   b.SetInsertPoint(entry);
-
-  Instruction* reduceVar = b.CreateAlloca(reduceType);
-
-  TypeVec fields = {module_->voidPtrTy, module_->i32Ty, module_->voidPtrTy};
-  StructType* argsType = StructType::create(c, fields, "struct.func_args");
-    
-  Value* argsPtr = b.CreateBitCast(argsVoidPtr, llvm::PointerType::get(argsType, 0), "args.ptr");
-
-  Value* indexPtr = b.CreateStructGEP(argsType, argsPtr, 1, "index.ptr");
-  
-  Value* funcArgsPtr = b.CreateStructGEP(argsType, argsPtr, 2, "funcArgs.ptr");
-  funcArgsPtr = b.CreateLoad(funcArgsPtr);
-   
+      
   Instruction* placeholder = module_->createNoOp();
 
-  Instruction* retVal = b.CreateLoad(reduceVar);
+  Instruction* ret = ReturnInst::Create(c, entry);
 
-  Instruction* ret = ReturnInst::Create(c, retVal, entry);
-
-  (*this)["entry"] = HLIRInstruction(reduceVar);
-  (*this)["index"] = HLIRValue(indexPtr);
-  (*this)["insertion"] = HLIRInstruction(retVal); 
-  (*this)["args"] = HLIRValue(funcArgsPtr);
+  (*this)["entry"] = HLIRInstruction(placeholder);
+  (*this)["index"] = HLIRValue(index);
+  (*this)["insertion"] = HLIRInstruction(placeholder); 
+  (*this)["args"] = HLIRValue(argsVoidPtr);
   (*this)["argsInsertion"] = HLIRInstruction(placeholder); 
-  (*this)["reduceVar"] = HLIRValue(reduceVar);
+  (*this)["reduceVar"] = HLIRValue(partial);
   (*this)["reduceType"] = reduceType;
 
   HLIRFunction f(func);
