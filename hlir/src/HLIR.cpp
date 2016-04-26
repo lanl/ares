@@ -872,15 +872,19 @@ HLIRParallelReduce::HLIRParallelReduce(HLIRModule* module,
   BasicBlock* entry = BasicBlock::Create(c, "entry", func);
   b.SetInsertPoint(entry);
       
-  Instruction* placeholder = module_->createNoOp();
+  Instruction* entryPlaceholder = module_->createNoOp();
+
+  Instruction* argsPlaceholder = module_->createNoOp();
+
+  Instruction* insertionPlaceholder = module_->createNoOp();
 
   Instruction* ret = ReturnInst::Create(c, entry);
 
-  (*this)["entry"] = HLIRInstruction(placeholder);
+  (*this)["entry"] = HLIRInstruction(entryPlaceholder);
   (*this)["index"] = HLIRValue(index);
-  (*this)["insertion"] = HLIRInstruction(placeholder); 
+  (*this)["insertion"] = HLIRInstruction(insertionPlaceholder); 
   (*this)["args"] = HLIRValue(argsVoidPtr);
-  (*this)["argsInsertion"] = HLIRInstruction(placeholder); 
+  (*this)["argsInsertion"] = HLIRInstruction(argsPlaceholder); 
   (*this)["reduceVar"] = HLIRValue(partial);
   (*this)["reduceType"] = reduceType;
 

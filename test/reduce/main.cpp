@@ -11,8 +11,10 @@ int main(int argc, char** argv){
 
   float sum = 0.0;
 
+  float x = 2.0;
+
   for(auto i : ReduceAll(0, SIZE, sum)){
-    sum += 1;
+    sum += x;
   }
 
   cout << "sum = " << sum << endl;
