@@ -3,7 +3,7 @@
    ARES Project \\
    Los Alamos National Laboratory \\
    Oak Ridge National Laboratory \\ \\
-   Kei Davis, Nick Moss,  Pat McCormick
+   Nick Moss, Kei Davis
 }
 \date{\today}
 
@@ -18,15 +18,19 @@
 
 The high level intermediate representation (HLIR) is a superset of a low- level sequential IR -- LLVM IR in our case. HLIR extends LLVM IR to allow parallel and other constructs to be readily captured/represented and conveniently manipulated. Remaining language-independent, multiple compiler front-ends could target HLIR to describe common parallel features of codes such as concurrency, tasks, parallel for loops, communication directives, memory locality, data layout, code structure, and more. Our HLIR, addressing some of the deficiencies of LLVM IR that make it unsuitable for describing parallel constructs at a more abstract level, adds a flexible and expressive hierarchical high-level representation that is capable of capturing recursive definitions and attributes that cannot be readily represented in a traditional IR. One of the ways HLIR achieves this is by embedding metadata and notional intrinsics into the traditional IR that can refer back to HLIR portions, and vice versa.
 
-HLIR is used by both the front-ends who use it to initially conveniently capture the semantics a parallel construct and as an intermediate representation internally in HLIR?s own transformation and optimization stages until it is finally lowered into ordinary LLVM IR which can then take advantage of existing LLVM optimizations and backends.
+HLIR is used by both the front-ends who use it to initially conveniently capture the semantics a parallel construct and as an intermediate representation internally in HLIR's own transformation and optimization stages until it is finally lowered into ordinary LLVM IR which can then take advantage of existing LLVM optimizations and backends.
 
 \subsection{LLVM}
 
 LLVM is a relatively recently developed intermediate representation and compilation toolchain designed for flexibility by allowing multiple front-ends and target architectures, modularity by separating various analyses and trans- formations into discrete passes, and extensibility by allowing developers to readily insert their own analysis and transformation passes. LLVM has already been widely adopted for both research activities and industrial-strength compiler toolchains, and as such is the logical choice on which to build.
-LLVM IR (LLIR) can be viewed as a machine-independent or universal assembly language and is used to encode the sequential semantics in our HLIR. LLVM backends for different native targets translate LLVM IR into native machine code. For example, the same LLIR can be used to produce code for conventional CPUs or GPUs, in some cases, by performing minor modifications on the IR for each target.
-LLVM IR is strongly-typed as contrasted with traditional assembly languages that operate on raw memory locations, whereas in LLVM {\it values} are associated with types, for example: integers and floating point values of varying bit widths, and pointers and compositions/structs thereof. The strong- typing features of LLVM makes LLIR considerable more portable and less error prone, as well as enable a more rapid implementation of code generators.
-LLVM code, at the high-level is organized into modules which are typically a translation unit or in one to one correspondence with a source file in the original program being compiled. Modules are a container of global data and functions. Functions, in turn, are made up of basic blocks -- a sequence of instructions that only perform control flow at the end of the basic block, namely: conditional or unconditional branches.
-All in all, LLVM excels at representing serial code, but does not purport to have any direct features for the representation of parallel constructs, such as parallel for, tasks, concurrent sections, monitors, etc. On the other hand, it does provide some powerful facilities/hooks that we use to achieve some of our functionality in the HLIR such as metadata, intrinsics, address spaces, a code transformation framework -- the LLVM pass manager -- and the ability to add our own passes.
+
+LLVM IR (LLIR) can be viewed as a machine-independent or universal assembly language and is used to encode the sequential semantics in our HLIR. LLVM backends for different native targets translate LLVM IR into native machine code. For example, the same LLIR can be used to produce code for conventional CPUs or GPUs, in some cases, by performing minor modifications on the IR for each target.
+
+LLVM IR is strongly-typed as contrasted with traditional assembly languages that operate on raw memory locations, whereas in LLVM {\it values} are associated with types, for example: integers and floating point values of varying bit widths, and pointers and compositions/structs thereof. The strong- typing features of LLVM makes LLIR considerable more portable and less error prone, as well as enable a more rapid implementation of code generators.
+
+LLVM code, at the high-level is organized into modules which are typically a translation unit or in one to one correspondence with a source file in the original program being compiled. Modules are a container of global data and functions. Functions, in turn, are made up of basic blocks -- a sequence of instructions that only perform control flow at the end of the basic block, namely: conditional or unconditional branches.
+
+All in all, LLVM excels at representing serial code, but does not purport to have any direct features for the representation of parallel constructs, such as parallel for, tasks, concurrent sections, monitors, etc. On the other hand, it does provide some powerful facilities/hooks that we use to achieve some of our functionality in the HLIR such as metadata, intrinsics, address spaces, a code transformation framework -- the LLVM pass manager -- and the ability to add our own passes.
 
 \subsubsection{Metadata}
 
@@ -35,7 +39,8 @@ LLVM metadata is a construct that allows arbitrary information to be attached to
 \subsubsection{Intrinsics}
 
 LLVM intrinsics are instructions that appear in the IR language as calls, but trigger a custom inlined code generation action. For example an intrinsic {\it call} may be expanded to a sequence of several IR instructions, avoiding the overhead of a normal call, or may be used to represent a call to a runtime library. The use of intrinsics is our preferred method of (simulating) the addition of new instructions to the LLVM IR.
-LLVM includes a powerful mechanism by which custom intrinsics can be readily defined. It is possible to add custom instructions to LLIR, however doing so entails several challenges and pre-measures that must be taken. Many of the things that could be accomplished by adding a new instruction can be effectively implemented with an intrinsic.
+
+LLVM includes a powerful mechanism by which custom intrinsics can be readily defined. It is possible to add custom instructions to LLIR, however doing so entails several challenges and pre-measures that must be taken. Many of the things that could be accomplished by adding a new instruction can be effectively implemented with an intrinsic.
 
 \subsubsection{Address Spaces}
 
@@ -47,15 +52,18 @@ The LLVM pass manager provides a powerful and extensible facility whereby LLVM I
 
 \subsection{Clang}
 
-Clang, a cornerstone of the LLVM toolchain, is an optimizing C/C++ compiler that generates LLIR code. In our prior experience in working with the internals of Clang, we have found Clang AST?s to be difficult to construct and modify, and by design, once they reach the code generation phase are immutable. Our HLIR is intended to fill the gaps between such a rigid AST and assembly-like code, where we need both the low-level sequential instruction level representation as well as the ability to readily represent and modify AST-like structures for our parallel constructs.
+Clang, a cornerstone of the LLVM toolchain, is an optimizing C/C++ compiler that generates LLIR code. In our prior experience in working with the internals of Clang, we have found Clang AST's to be difficult to construct and modify, and by design, once they reach the code generation phase are immutable. Our HLIR is intended to fill the gaps between such a rigid AST and assembly-like code, where we need both the low-level sequential instruction level representation as well as the ability to readily represent and modify AST-like structures for our parallel constructs.
 
 \section{HLIR Design}
 
 An HLIR {\it module} corresponds to either an entire translation unit ({\it module}), or a sub-portion of a module. HLIR modules are in one-to-one correspondence with an LLIR module. Internally, HLIR maps an LLIR module pointer to an HLIR module so that an HLIR module can be readily retrieved given an LLIR module or created and paired with its LLIR module counterpart.
-HLIR contains recursive or nested HLIR-specific constructs with LLVM IR at select leaf nodes of these constructs. HLIR modules are designed with the capability to be easily merged. For example, one document that contains definitions for a parallel HLIR construct can be merged into the scope of another HLIR module.
-The HLIR is implemented as a set of interoperable C++ classes designed to provide convenient in-memory manipulation. Like LLIR, these classes can also be outputted as a human-readable textual representation. The HLIR defines a number of node types which make up the HLIR representation: leaf nodes include symbols, strings, numeric types, an LLVM IR function (which can represent an arbitrary section of code but is packaged into a proper function, encapsulating its dependencies). Recursive nodes allow multiple nesting within the representation, for example: mapping a symbol to another node (a symbol key/value pair), or a sequence of nodes, referenced by position
+
+HLIR contains recursive or nested HLIR-specific constructs with LLVM IR at select leaf nodes of these constructs. HLIR modules are designed with the capability to be easily merged. For example, one document that contains definitions for a parallel HLIR construct can be merged into the scope of another HLIR module.
+
+The HLIR is implemented as a set of interoperable C++ classes designed to provide convenient in-memory manipulation. Like LLIR, these classes can also be outputted as a human-readable textual representation. The HLIR defines a number of node types which make up the HLIR representation: leaf nodes include symbols, strings, numeric types, an LLVM IR function (which can represent an arbitrary section of code but is packaged into a proper function, encapsulating its dependencies). Recursive nodes allow multiple nesting within the representation, for example: mapping a symbol to another node (a symbol key/value pair), or a sequence of nodes, referenced by position
 instead of a named symbol. Both maps and sequences allow for heterogenous node value types.
-The following HLIR tree representation depicts of a portion of an HLIR module containing a simple parallel for:
+
+The following HLIR tree representation depicts of a portion of an HLIR module containing a simple parallel for:
 
 \includegraphics[width=13cm]{hlir.pdf}
 
@@ -65,9 +73,12 @@ The top-level HLIR section records data that pertains to the HLIR document as a 
 
 \subsection{LLVM IR sections}
 
-An HLIR document may contain multiple leaf nodes that hold LLVM IR. We use LLIR?s metadata facilities to tie IR fragments back to HLIR-specific constructs.Metadata that begins with {\tt !hlir} is taken to denote an HLIR construct. So for example, a function call which has the metadata label {\tt !hlir.task1} would reference the task1 section of the top-level, document. We can further refer to nested HLIR specifications with {\tt !hlir.task1.dependencies} which would refer to the dependencies HLIR description of this task.
-HLIR allows arbitrary fragments of LLIR to be captured - however, we place the restriction that such references to smaller fragments must be properly wrapped into an LLIR function which passes in its dependencies as function parameters -- and does not reference and globals. We enforce that all LLVM nodes are valid LLIR as a unit.
-We use LLIR intrinsics for constructs such as communication directives, e.g., as point-to-point or collective send/receives, similarly to MPI. The purpose of such constructs is to capture the semantics of parallel constructs, such as communication, at a high level, irrespective of how the underlying parallel construct will be implemented or lowered to a specific runtime.
+An HLIR document may contain multiple leaf nodes that hold LLVM IR. We use LLIR's metadata facilities to tie IR fragments back to HLIR-specific constructs.
+Metadata that begins with {\tt !hlir} is taken to denote an HLIR construct. So for example, a function call which has the metadata label {\tt !hlir.task1} would reference the task1 section of the top-level, document. We can further refer to nested HLIR specifications with {\tt !hlir.task1.dependencies} which would refer to the dependencies HLIR description of this task.
+
+HLIR allows arbitrary fragments of LLIR to be captured - however, we place the restriction that such references to smaller fragments must be properly wrapped into an LLIR function which passes in its dependencies as function parameters -- and does not reference and globals. We enforce that all LLVM nodes are valid LLIR as a unit.
+
+We use LLIR intrinsics for constructs such as communication directives, e.g., as point-to-point or collective send/receives, similarly to MPI. The purpose of such constructs is to capture the semantics of parallel constructs, such as communication, at a high level, irrespective of how the underlying parallel construct will be implemented or lowered to a specific runtime.
 
 \subsection{Memory Locality}
 
@@ -93,7 +104,7 @@ One of our potential front-ends for HLIR is Kokkos, which includes a parallel fo
 
 \subsubsection{Communication}
 
-Communication directives use intrinsics and metadata linked back to HLIR sections to capture the semantics but not implementation details of communication patterns. They could ultimately, internally code generate to use varying targets such as MPI, GasNet, or Realm, for example. For this reason, they capture enough metadata about variables and their associated address spaces (the HLIR address space section) so that the lower level code generation phase can target a specific implementation or runtime layer with little configuration in the parallel compiler?s targeting to HLIR.
+Communication directives use intrinsics and metadata linked back to HLIR sections to capture the semantics but not implementation details of communication patterns. They could ultimately, internally code generate to use varying targets such as MPI, GasNet, or Realm, for example. For this reason, they capture enough metadata about variables and their associated address spaces (the HLIR address space section) so that the lower level code generation phase can target a specific implementation or runtime layer with little configuration in the parallel compiler's targeting to HLIR.
 
 \section{HLIR Usage and Implementation}
 
@@ -108,19 +119,23 @@ HLIR is implemented using C++ 14, taking advantage of modern C++ features. As de
 HLIR's recursive representation is provided by a hierarchy of {\it nodes} which are briefly described here. One should consult HLIR.h for a complete reference.
 
 \begin{itemize}
-\item {\tt HLIRNode} - the base class in which all other HLIR nodes derive from. An HLIR node may be a child of at most one other node and as such it has an associated parent. Nodes are either recursive or leaf nodes. A recursive node can hold a heterogeneous collection of children nodes.
+
+\item {\tt HLIRNode} - the base class in which all other HLIR nodes derive from. An HLIR node may be a child of at most one other node and as such it has an associated parent. Nodes are either recursive or leaf nodes. A recursive node can hold a heterogeneous collection of children nodes.
 
 \item {\tt HLIRScalar} - the base class for simple scalar nodes such as {\tt HLIRString}, {\tt HLIRInteger}, etc. These are simple wrappers for scalars such as string, integer, floating point values, etc.
 
 \item {\tt HLIRSymbol} - a lexical symbol, internally stored as a string.
-\item {\tt HLIRVector} - a vector of heterogeneous nodes; used for storing positional information.
-\item {\tt HLIRMap} - a recursive key/value store where keys are symbols and values are heterogeneous nodes.
+
+\item {\tt HLIRVector} - a vector of heterogeneous nodes; used for storing positional information.
+
+\item {\tt HLIRMap} - a recursive key/value store where keys are symbols and values are heterogeneous nodes.
 
 \item {\tt HLIRFunction} - an LLIR Function and HLIR-specific convenience methods.
 
 \item {\tt HLIRValue} - an LLIR Value and HLIR-specific convenience methods.
 
-\item {\tt HLIRInstruction} - an LLIR Instruction and HLIR-specific conveniencemethods.
+\item {\tt HLIRInstruction} - an LLIR Instruction and HLIR-specific convenience
+methods.
 
 \item {\tt HLIRModule} - corresponds to an LLIR module and holds HLIR-specific parallel constructs and convenience methods and HLIR-specific meta- data about the module as a whole.
 
@@ -135,6 +150,8 @@ HLIR's recursive representation is provided by a hierarchy of {\it nodes} which 
 Our runtime is a C-based ABI interface whose implementation is in C++. The runtime consists of memory allocators, a thread pool and synchronization mechanism via {\it virtual semaphores}. Internally, LLIR functions are created which wrap normal calls to implement constructs such as tasks in such a way that their arguments are bundled into a closure which can then be queued to the runtime's thread pool.
 
 \subsection{HLIR Lowering Process}
-One of the major benefits of HLIR is that it provides high-level constructs and a convenient interface for interfacing with LLIR. The HLIR module pass is responsible for transforming an HLIR module and LLIR IR which ties to the HLIR module with metadata and intrinsics into ordinary LLIR with calls to our runtime. The lowering process is nearly automatic, and the creator of a front-end targeting HLIR need not be aware of the internal details, only a familiarity with the HLIR interface we provide.For example, all that is required of the front-end in targeting tasks is to specify that a certain LLIR function is a task by creating an {\tt HLIRTask} on the {\tt HLIRModule}, then the runtime handles the details of transforming calls to that function into task launches and awaiting futures when that future's value is required in LLIR.
+
+One of the major benefits of HLIR is that it provides high-level constructs and a convenient interface for interfacing with LLIR. The HLIR module pass is responsible for transforming an HLIR module and LLIR IR which ties to the HLIR module with metadata and intrinsics into ordinary LLIR with calls to our runtime. The lowering process is nearly automatic, and the creator of a front-end targeting HLIR need not be aware of the internal details, only a familiarity with the HLIR interface we provide.
+For example, all that is required of the front-end in targeting tasks is to specify that a certain LLIR function is a task by creating an {\tt HLIRTask} on the {\tt HLIRModule}, then the runtime handles the details of transforming calls to that function into task launches and awaiting futures when that future's value is required in LLIR.
 
 \end{document}
