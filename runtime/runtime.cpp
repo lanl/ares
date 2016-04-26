@@ -173,7 +173,7 @@ extern "C"{
   void __ares_task_queue(void* funcPtr, void* argsPtr){
     auto func = reinterpret_cast<FuncPtr>(funcPtr);
     auto args = reinterpret_cast<TaskArg*>(argsPtr);
-    args->futureSync = new Synch(0);
+    args->futureSync = new Synch(1);
     _threadPool->push(func, args, 0);
   }
 

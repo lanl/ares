@@ -11,7 +11,7 @@ task int fib(int i){
 }
 
 int main(int argc, char** argv){
-  int f = fib(19);
+  int f = fib(9);
 
   cout << "f = " << f << endl;
 
