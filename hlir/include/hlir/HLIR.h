@@ -885,6 +885,7 @@ namespace ares{
   public:
     llvm::Type* voidTy;
     llvm::IntegerType* boolTy;
+    llvm::IntegerType* i1Ty;
     llvm::IntegerType* i8Ty;
     llvm::IntegerType* i16Ty;
     llvm::IntegerType* i32Ty;
@@ -1011,6 +1012,7 @@ namespace ares{
 
       voidTy = llvm::Type::getVoidTy(context_);
       boolTy = llvm::Type::getInt1Ty(context_);
+      i1Ty = llvm::Type::getInt1Ty(context_);
       i8Ty = llvm::Type::getInt8Ty(context_);
       i16Ty = llvm::Type::getInt16Ty(context_);
       i32Ty = llvm::Type::getInt32Ty(context_);

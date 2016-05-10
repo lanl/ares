@@ -741,11 +741,23 @@ void HLIRModule::lowerTask_(HLIRTask* task){
         if(Instruction* i = dyn_cast<Instruction>(itr->getUser())){
           b.SetInsertPoint(i);
 
+          BasicBlock* loopBlock = BasicBlock::Create(c, "loop.block", func);
+          BasicBlock* mergeBlock = BasicBlock::Create(c, "merge.block", func);
+          
+          b.CreateBr(loopBlock);
+          b.SetInsertPoint(loopBlock);
+
           Function* awaitFunc = 
-            getFunction("__ares_task_await_future", {voidPtrTy});
+            getFunction("__ares_task_try_await_future", {voidPtrTy}, i1Ty);
 
           args = {argsVoidPtr};
-          b.CreateCall(awaitFunc, args);
+          Value* done = b.CreateCall(awaitFunc, args);
+
+          Value* cond = b.CreateICmpNE(done, ConstantInt::get(i1Ty, 0));
+
+          b.CreateCondBr(cond, mergeBlock, loopBlock);
+
+          b.SetInsertPoint(mergeBlock);
 
           Value* retPtr = b.CreateStructGEP(nullptr, argsPtr, 2, "retPtr");
           Value* retVal = b.CreateLoad(retPtr, "retVal"); 
