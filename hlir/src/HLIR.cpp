@@ -755,6 +755,11 @@ void HLIRModule::lowerTask_(HLIRTask* task){
 
           Value* cond = b.CreateICmpNE(done, ConstantInt::get(i1Ty, 0));
 
+          Function* yieldFunc = 
+            getFunction("__ares_thread_yield", TypeVec());
+            
+          b.CreateCall(yieldFunc);
+
           b.CreateCondBr(cond, mergeBlock, loopBlock);
 
           b.SetInsertPoint(mergeBlock);

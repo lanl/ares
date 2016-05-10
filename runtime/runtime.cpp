@@ -207,6 +207,14 @@ extern "C"{
     args->futureSync->release();
   }
 
+  void __ares_thread_yield(){
+#ifdef USE_ARGO_BOTS
+    _threadPool->yield();
+#else
+    assert(false && "unable to yield");
+#endif
+  }
+
   void __ares_debug(){
     np(9);
   }
