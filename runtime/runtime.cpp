@@ -49,6 +49,8 @@
  * #####
  */
 
+#define USE_ARGO_BOTS 1
+
 #include <iostream>
 #include <cmath>
 #include <thread>
@@ -60,7 +62,12 @@
 #include <deque>
 #include <queue>
 
+#ifdef USE_ARGO_BOTS
+#include "ArgoPool.h"
+#else
 #include "ThreadPool.h"
+#endif
+
 #include "Barrier.h"
 
 #include "communication.h"
@@ -90,6 +97,10 @@ namespace{
       sem_.acquire();
     }
 
+    bool tryAwait(){
+      return sem_.tryAcquire();
+    }
+
   private:
     CVSemaphore sem_;
   };
@@ -113,7 +124,11 @@ namespace{
     uint32_t depth;
   };
 
+#ifdef USE_ARGO_BOTS
+  ArgoPool* _threadPool = new ArgoPool;
+#else
   ThreadPool* _threadPool = new ThreadPool(NUM_THREADS);
+#endif
 
   Communicator* _communicator = nullptr;
 
@@ -180,6 +195,11 @@ extern "C"{
   void __ares_task_await_future(void* argsPtr){
     auto args = reinterpret_cast<TaskArg*>(argsPtr);
     args->futureSync->await();
+  }
+
+  bool __ares_task_try_await_future(void* argsPtr){
+    auto args = reinterpret_cast<TaskArg*>(argsPtr);
+    return args->futureSync->tryAwait();
   }
 
   void __ares_task_release_future(void* argsPtr){

@@ -58,6 +58,7 @@ using FuncPtr = void(*)(void*);
 
 class ArgoPool{
  public:
+
    // initialize an argbots pool and perform any argobots initialization needed
    // assume for now that this class is a singleton - the ARES runtime will
    // create exactly one ArgoPool
@@ -66,7 +67,8 @@ class ArgoPool{
    }
 
    // queue a function pointer for execution with args
-   void push(FuncPtr func, void* args){
+   // we will ignore priority for now
+   void push(FuncPtr func, void* args, uint32_t priority){
 
    }
 
