@@ -56,6 +56,8 @@
 
 #include <mutex>
 
+//#define USE_ARGOBOTS 1
+
 using namespace std;
 using namespace llvm;
 using namespace ares;
@@ -741,6 +743,8 @@ void HLIRModule::lowerTask_(HLIRTask* task){
         if(Instruction* i = dyn_cast<Instruction>(itr->getUser())){
           b.SetInsertPoint(i);
 
+#ifdef USE_ARGOBOTS
+
           BasicBlock* loopBlock = BasicBlock::Create(c, "loop.block", func);
           BasicBlock* mergeBlock = BasicBlock::Create(c, "merge.block", func);
           
@@ -763,7 +767,13 @@ void HLIRModule::lowerTask_(HLIRTask* task){
           b.CreateCondBr(cond, mergeBlock, loopBlock);
 
           b.SetInsertPoint(mergeBlock);
+#else
+          Function* awaitFunc = 
+            getFunction("__ares_task_await_future", {voidPtrTy});
 
+          args = {argsVoidPtr};
+          b.CreateCall(awaitFunc, args);
+#endif
           Value* retPtr = b.CreateStructGEP(nullptr, argsPtr, 2, "retPtr");
           Value* retVal = b.CreateLoad(retPtr, "retVal"); 
 
