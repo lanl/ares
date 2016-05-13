@@ -852,17 +852,22 @@ HLIRParallelFor::HLIRParallelFor(HLIRModule* module)
   funcArgsPtr = b.CreateLoad(funcArgsPtr);
    
   Instruction* placeholder = module_->createNoOp();
+  Instruction* insertion = module_->createNoOp();
+
+  BasicBlock* exitBlock = BasicBlock::Create(c, "exit.block", func);
+  b.SetInsertPoint(exitBlock);
 
   Value* synchVoidPtr = b.CreateBitCast(synchPtr, module_->voidPtrTy);
 
   b.CreateCall(finishFunc, {argsVoidPtr});
 
-  Instruction* insertion = module_->createNoOp();
+  b.CreateRetVoid();
 
   (*this)["index"] = HLIRValue(indexPtr);
-  (*this)["insertion"] = insertion; 
+  (*this)["insertion"] = HLIRInstruction(insertion); 
   (*this)["args"] = HLIRValue(funcArgsPtr);
   (*this)["argsInsertion"] = HLIRInstruction(placeholder); 
+  (*this)["exitBlock"] = HLIRBasicBlock(exitBlock); 
 
   HLIRFunction f(func);
   (*this)["body"] = f;  

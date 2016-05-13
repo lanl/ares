@@ -196,7 +196,9 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
 
   EmitStmt(body);
 
-  B.CreateRetVoid();
+  auto exitBlock = pfor->exitBlock();
+
+  B.CreateBr(exitBlock);
 
   CurFn = prevFn;
 
@@ -227,6 +229,8 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   //std::cout << "+++======================" << std::endl;
   
   //CGM.getModule().dump();
+
+  //pfor->body()->dump();
 }
 
 void CodeGenFunction::EmitParallelReduce(const CXXForRangeStmt& S){
