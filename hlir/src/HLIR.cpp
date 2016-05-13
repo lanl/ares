@@ -161,6 +161,9 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   //cerr << "---------- module before" << endl;
   //module_->dump();
   
+  //auto insertion = pf->get<HLIRInstruction>("insertion");
+  //insertion->removeFromParent();
+
   auto marker = pf->get<HLIRInstruction>("marker");
   BasicBlock* block = marker->getParent();
   Function* func = block->getParent();
@@ -226,8 +229,8 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
     FunctionType::get(voidTy, {voidPtrTy}, false);
 
   auto r = pf->range();
-  Value* start = toInt32(r[0]->as<HLIRInteger>());
-  Value* end = toInt32(r[1]->as<HLIRInteger>());
+  Value* start = r[0]->as<HLIRValue>();
+  Value* end = r[1]->as<HLIRValue>();
 
   Value* n = b.CreateSub(end, start, "n");
 
@@ -854,8 +857,10 @@ HLIRParallelFor::HLIRParallelFor(HLIRModule* module)
 
   b.CreateCall(finishFunc, {argsVoidPtr});
 
+  Instruction* insertion = module_->createNoOp();
+
   (*this)["index"] = HLIRValue(indexPtr);
-  (*this)["insertion"] = HLIRInstruction(ReturnInst::Create(c, entry)); 
+  (*this)["insertion"] = insertion; 
   (*this)["args"] = HLIRValue(funcArgsPtr);
   (*this)["argsInsertion"] = HLIRInstruction(placeholder); 
 

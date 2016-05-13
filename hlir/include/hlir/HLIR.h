@@ -1269,11 +1269,7 @@ namespace ares{
 
     HLIRFunction& body();
 
-    void setRange(const HLIRInteger& start, const HLIRInteger& end){
-      if(start > end){
-        HLIR_ERROR("invalid range");
-      }
-
+    void setRange(const HLIRValue& start, const HLIRValue& end){
       (*this)["range"] = HLIRVector() << start << end;
     }
 

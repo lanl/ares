@@ -176,16 +176,29 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   BasicBlock::iterator prevPoint = B.GetInsertPoint();
   
   setAddrOfLocalVar(indexVar, Address(pfor->index(), getPointerAlign()));
-  
-  B.SetInsertPoint(pfor->insertion());
+
+  auto insertion = pfor->insertion();
+
+  auto par = insertion->getParent();
+  insertion->removeFromParent();
+
+  B.SetInsertPoint(par);
   
   auto prevAllocaPt = AllocaInsertPt;
 
-  AllocaInsertPt = pfor->insertion();
+  llvm::Function* prevFn = CurFn;
+
+  CurFn = pfor->body();
+
+  AllocaInsertPt = pfor->argsInsertion();
 
   //LexicalScope TestScope(*this, body->getSourceRange());
 
   EmitStmt(body);
+
+  B.CreateRetVoid();
+
+  CurFn = prevFn;
 
   B.SetInsertPoint(prevBlock, prevPoint);
 
@@ -211,6 +224,7 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   AllocaInsertPt = prevAllocaPt;
   
   //std::cout << *mod << std::endl;
+  //std::cout << "+++======================" << std::endl;
   
   //CGM.getModule().dump();
 }
