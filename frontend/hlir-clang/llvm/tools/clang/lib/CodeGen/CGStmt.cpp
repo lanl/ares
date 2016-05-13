@@ -214,11 +214,27 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   assert(mt);
 
   auto ce = dyn_cast<CXXConstructExpr>(mt->GetTemporaryExpr());
-  assert(ce);
-  assert(ce->getNumArgs() == 2);
+  if(!ce){
+    auto fc = dyn_cast<CXXFunctionalCastExpr>(mt->GetTemporaryExpr());
+    ce = dyn_cast<CXXConstructExpr>(fc->getSubExpr());
+  }
 
-  Value* start = EmitAnyExprToTemp(ce->getArg(0)).getScalarVal();
-  Value* end = EmitAnyExprToTemp(ce->getArg(1)).getScalarVal();
+  assert(ce);
+
+  Value* start;
+  Value* end;
+
+  if(ce->getNumArgs() == 1){
+    start = ConstantInt::get(Int32Ty, 0);
+    end = EmitAnyExprToTemp(ce->getArg(0)).getScalarVal();
+  }
+  else if(ce->getNumArgs() == 2){
+    start = EmitAnyExprToTemp(ce->getArg(0)).getScalarVal();
+    end = EmitAnyExprToTemp(ce->getArg(1)).getScalarVal();
+  }
+  else{
+    assert(false && "invalid forall range");
+  }
 
   pfor->setRange(start, end);
   pfor->insert(B);

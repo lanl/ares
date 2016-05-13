@@ -113,7 +113,7 @@ int main(int argc, char** argv){
   HeatMesh m(MESH_DIM, MESH_DIM);
   m.init();
 
-  for(auto i : Forall(0, m.numCells())){
+  for(auto i : Forall(m.numCells())){
     auto p = m.position(i);
 
     m.h[i] = 0.0f;
@@ -135,7 +135,7 @@ int main(int argc, char** argv){
 
   for(size_t i = 0; i < TIME_STEPS; ++i){
     
-    for(auto i : Forall(0, m.numCells())){
+    for(auto i : Forall(m.numCells())){
       auto p = m.position(i);
       auto pw = m.shift(p, -1, 0); 
       auto pe = m.shift(p, 1, 0); 
@@ -154,7 +154,7 @@ int main(int argc, char** argv){
         (alpha * (d2dx2 + d2dy2) - m.mask(p) * u * ddx) + m.h(p);
     }
 
-    for(auto i : Forall(0, m.numCells())){
+    for(auto i : Forall(m.numCells())){
       m.h[i] = m.h_next[i];
     }
   }

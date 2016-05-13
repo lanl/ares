@@ -93,6 +93,10 @@
       : start_(start),
       end_(end){}
 
+      Forall(uint32_t end)
+      : start_(0),
+      end_(end){}
+
       Iterator_ begin() const{
         return Iterator_(start_);
       }
