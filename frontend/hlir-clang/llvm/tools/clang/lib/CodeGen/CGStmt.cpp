@@ -176,16 +176,31 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   BasicBlock::iterator prevPoint = B.GetInsertPoint();
   
   setAddrOfLocalVar(indexVar, Address(pfor->index(), getPointerAlign()));
-  
-  B.SetInsertPoint(pfor->insertion());
+
+  auto insertion = pfor->insertion();
+
+  auto par = insertion->getParent();
+  insertion->removeFromParent();
+
+  B.SetInsertPoint(par);
   
   auto prevAllocaPt = AllocaInsertPt;
 
-  AllocaInsertPt = pfor->insertion();
+  llvm::Function* prevFn = CurFn;
+
+  CurFn = pfor->body();
+
+  AllocaInsertPt = pfor->argsInsertion();
 
   //LexicalScope TestScope(*this, body->getSourceRange());
 
   EmitStmt(body);
+
+  auto exitBlock = pfor->exitBlock();
+
+  B.CreateBr(exitBlock);
+
+  CurFn = prevFn;
 
   B.SetInsertPoint(prevBlock, prevPoint);
 
@@ -199,11 +214,27 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   assert(mt);
 
   auto ce = dyn_cast<CXXConstructExpr>(mt->GetTemporaryExpr());
-  assert(ce);
-  assert(ce->getNumArgs() == 2);
+  if(!ce){
+    auto fc = dyn_cast<CXXFunctionalCastExpr>(mt->GetTemporaryExpr());
+    ce = dyn_cast<CXXConstructExpr>(fc->getSubExpr());
+  }
 
-  Value* start = EmitAnyExprToTemp(ce->getArg(0)).getScalarVal();
-  Value* end = EmitAnyExprToTemp(ce->getArg(1)).getScalarVal();
+  assert(ce);
+
+  Value* start;
+  Value* end;
+
+  if(ce->getNumArgs() == 1){
+    start = ConstantInt::get(Int32Ty, 0);
+    end = EmitAnyExprToTemp(ce->getArg(0)).getScalarVal();
+  }
+  else if(ce->getNumArgs() == 2){
+    start = EmitAnyExprToTemp(ce->getArg(0)).getScalarVal();
+    end = EmitAnyExprToTemp(ce->getArg(1)).getScalarVal();
+  }
+  else{
+    assert(false && "invalid forall range");
+  }
 
   pfor->setRange(start, end);
   pfor->insert(B);
@@ -211,8 +242,11 @@ void CodeGenFunction::EmitParallelFor(const CXXForRangeStmt& S){
   AllocaInsertPt = prevAllocaPt;
   
   //std::cout << *mod << std::endl;
+  //std::cout << "+++======================" << std::endl;
   
   //CGM.getModule().dump();
+
+  //pfor->body()->dump();
 }
 
 void CodeGenFunction::EmitParallelReduce(const CXXForRangeStmt& S){

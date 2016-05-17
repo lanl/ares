@@ -453,6 +453,28 @@ namespace ares{
     }
   };
 
+  class HLIRBasicBlock : public HLIRContainer<llvm::BasicBlock>{
+  public:
+    using Super = HLIRContainer<llvm::BasicBlock>;
+
+    HLIRBasicBlock(llvm::BasicBlock* value) : Super(value){}
+
+    virtual void output(std::ostream& ostr, size_t level=0) const override{
+      std::string str;
+      llvm::raw_string_ostream sstr(str);
+      ptr_->print(sstr);
+      ostr << "<<<basic block:" << sstr.str() << ">>>"; 
+    }
+
+    virtual HLIRBasicBlock* copy() const override{
+      return new HLIRBasicBlock(ptr_);
+    }
+
+    static HLIRBasicBlock nullValue(){
+      return nullptr;
+    }
+  };
+
   class HLIRNodeFactory{
   public:
     static HLIRNode* create(HLIRNode* node){
@@ -1267,13 +1289,13 @@ namespace ares{
       return get<HLIRValue>("args");
     }
 
+    auto& exitBlock() const{
+      return get<HLIRBasicBlock>("exitBlock");
+    }
+
     HLIRFunction& body();
 
-    void setRange(const HLIRInteger& start, const HLIRInteger& end){
-      if(start > end){
-        HLIR_ERROR("invalid range");
-      }
-
+    void setRange(const HLIRValue& start, const HLIRValue& end){
       (*this)["range"] = HLIRVector() << start << end;
     }
 
