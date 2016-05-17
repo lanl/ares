@@ -49,40 +49,41 @@
  * #####
  */
 
+// export PATH=/home/kei/projects/gcc-5.3.0-install/bin:$PATH
+
+// use gcc-5.3.0 libraries?  see /home/kei/project/gcc-5.3.0-install/README-libs.txt
+
+// g++ -c ArgoPool.cpp -std=c++14 -I../argobots/install/include
+
 #ifndef __ARES_ARGO_POOL_H__
 #define __ARES_ARGO_POOL_H__
+
+#include <stdint.h>
 
 namespace ares{
 
 using FuncPtr = void(*)(void*);
 
 class ArgoPool{
- public:
+public:
 
-   // initialize an argbots pool and perform any argobots initialization needed
-   // assume for now that this class is a singleton - the ARES runtime will
-   // create exactly one ArgoPool
-   ArgoPool(){
+  // initialize an argbots pool and perform any argobots initialization needed
+  // assume for now that this class is a singleton - the ARES runtime will
+  // create exactly one ArgoPool
+  ArgoPool(int argc, char *argv[]);
+  ~ArgoPool();
 
-   }
+  // queue a function pointer for execution with args
+  // we will ignore priority for now
+  void AP_push(FuncPtr func, void* args, uint32_t priority);
 
-   // queue a function pointer for execution with args
-   // we will ignore priority for now
-   void push(FuncPtr func, void* args, uint32_t priority){
+  // called by an argobots thread to yield
+  void AP_yield();
 
-   }
-
-   // called by an argobots thread to yield
-   void yield(){
-
-   }
-
-   // called when the argobots thread finishes to perform any cleanup needed
-   void finish(){
-
-   }
+  // called when the argobots thread finishes to perform any cleanup needed
+  void AP_finish();
  };
 
 } // namespace ares
 
- #endif // __ARES_ARGO_POOL_H__
+#endif // __ARES_ARGO_POOL_H__
