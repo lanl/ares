@@ -58,32 +58,41 @@
 #ifndef __ARES_ARGO_POOL_H__
 #define __ARES_ARGO_POOL_H__
 
+#include "abt.h"
 #include <stdint.h>
 
-namespace ares{
+namespace ares {
 
-using FuncPtr = void(*)(void*);
-
-class ArgoPool{
-public:
-
-  // initialize an argbots pool and perform any argobots initialization needed
-  // assume for now that this class is a singleton - the ARES runtime will
-  // create exactly one ArgoPool
-  ArgoPool(int argc, char *argv[]);
-  ~ArgoPool();
-
-  // queue a function pointer for execution with args
-  // we will ignore priority for now
-  void AP_push(FuncPtr func, void* args, uint32_t priority);
-
-  // called by an argobots thread to yield
-  void AP_yield();
-
-  // called when the argobots thread finishes to perform any cleanup needed
-  void AP_finish();
- };
-
+  using FuncPtr = void(*)(void*);
+  
+  class ArgoPool {
+  public:
+    
+    // initialize an argbots pool and perform any argobots initialization needed
+    // assume for now that this class is a singleton - the ARES runtime will
+    // create exactly one ArgoPool
+    ArgoPool(int argc, char *argv[]);
+    ~ArgoPool();
+    
+    // queue a function pointer for execution with args
+    // we will ignore priority for now
+    void AP_push(FuncPtr func, void* argp, uint32_t priority);
+    
+    // called by an argobots thread to yield
+    void AP_yield();
+    
+    // called when the argobots thread finishes to perform any cleanup needed
+    void AP_finish();
+    
+  private:
+    
+    // this could be static since only one instance of ArgoPool may exist
+    int threadId;
+    ABT_xstream xstreams[2];
+    ABT_pool pools[2];
+    
+  };
+  
 } // namespace ares
 
 #endif // __ARES_ARGO_POOL_H__
