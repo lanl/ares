@@ -76,21 +76,20 @@ namespace ares {
     
     // queue a function pointer for execution with args
     // we will ignore priority for now
-    void AP_push(FuncPtr func, void* argp, uint32_t priority);
+    static void AP_push(FuncPtr func, void* argp, uint32_t priority);
     
     // called by an argobots thread to yield
-    void AP_yield();
+    static void AP_yield();
     
     // called when the argobots thread finishes to perform any cleanup needed
-    void AP_finish();
+    static void AP_finish();
     
   private:
     
     // this could be static since only one instance of ArgoPool may exist
-    int threadId;
-    ABT_xstream xstreams[2];
-    ABT_pool pools[2];
-    
+    //    int threadId;
+    static ABT_xstream xstreams[2];
+    static ABT_pool pools[2];
   };
   
 } // namespace ares
