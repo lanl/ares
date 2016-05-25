@@ -750,6 +750,7 @@ void HLIRModule::lowerTask_(HLIRTask* task){
 
           BasicBlock* loopBlock = BasicBlock::Create(c, "loop.block", func);
           BasicBlock* mergeBlock = BasicBlock::Create(c, "merge.block", func);
+          BasicBlock* yieldBlock = BasicBlock::Create(c, "yield.block", func);
           
           b.CreateBr(loopBlock);
           b.SetInsertPoint(loopBlock);
@@ -762,12 +763,16 @@ void HLIRModule::lowerTask_(HLIRTask* task){
 
           Value* cond = b.CreateICmpNE(done, ConstantInt::get(i1Ty, 0));
 
+          b.CreateCondBr(cond, mergeBlock, yieldBlock);
+
+          b.SetInsertPoint(yieldBlock);
+
           Function* yieldFunc = 
             getFunction("__ares_thread_yield", TypeVec());
             
           b.CreateCall(yieldFunc);
 
-          b.CreateCondBr(cond, mergeBlock, loopBlock);
+          b.CreateBr(loopBlock);
 
           b.SetInsertPoint(mergeBlock);
 #else
