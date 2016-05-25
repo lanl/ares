@@ -1,0 +1,565 @@
+/* -*- Mode: C; c-basic-offset:4 ; indent-tabs-mode:nil ; -*- */
+/*
+ * See COPYRIGHT in top-level directory.
+ */
+
+#ifndef ABT_H_INCLUDED
+#define ABT_H_INCLUDED
+
+/* user include file for ARGOBOTS programs */
+
+/* Keep C++ compilers from getting confused */
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
+#include <stddef.h>
+#include <stdint.h>
+#include <sys/time.h>
+
+/* ABT_VERSION is the version string. ABT_NUMVERSION is the
+ * numeric version that can be used in numeric comparisons.
+ *
+ * ABT_VERSION uses the following format:
+ * Version: [MAJ].[MIN].[REV][EXT][EXT_NUMBER]
+ * Example: 1.0.7rc1 has
+ *          MAJ = 1
+ *          MIN = 0
+ *          REV = 7
+ *          EXT = rc
+ *          EXT_NUMBER = 1
+ *
+ * ABT_NUMVERSION will convert EXT to a format number:
+ *          ALPHA (a) = 0
+ *          BETA (b)  = 1
+ *          RC (rc)   = 2
+ *          PATCH (p) = 3
+ * Regular releases are treated as patch 0
+ *
+ * Numeric version will have 1 digit for MAJ, 2 digits for MIN, 2
+ * digits for REV, 1 digit for EXT and 2 digits for EXT_NUMBER. So,
+ * 1.0.7rc1 will have the numeric version 10007201.
+ */
+#define ABT_VERSION "0.1"
+#define ABT_NUMVERSION 100300
+
+#define ABT_RELEASE_TYPE_ALPHA  0
+#define ABT_RELEASE_TYPE_BETA   1
+#define ABT_RELEASE_TYPE_RC     2
+#define ABT_RELEASE_TYPE_PATCH  3
+
+#define ABT_CALC_VERSION(MAJOR, MINOR, REVISION, TYPE, PATCH) \
+    (((MAJOR) * 10000000) + ((MINOR) * 100000) + ((REVISION) * 1000) + ((TYPE) * 100) + (PATCH))
+
+
+/* Error Classes */
+#define ABT_SUCCESS                 0  /* Successful return code */
+#define ABT_ERR_UNINITIALIZED       1  /* Uninitialized */
+#define ABT_ERR_MEM                 2  /* Memeory allocation failure */
+#define ABT_ERR_OTHER               3  /* Other error */
+#define ABT_ERR_INV_XSTREAM         4  /* Invalid ES */
+#define ABT_ERR_INV_XSTREAM_RANK    5  /* Invalid ES rank */
+#define ABT_ERR_INV_XSTREAM_BARRIER 6  /* Invalid ES barrier */
+#define ABT_ERR_INV_SCHED           7  /* Invalid scheduler */
+#define ABT_ERR_INV_SCHED_KIND      8  /* Invalid scheduler kind */
+#define ABT_ERR_INV_SCHED_PREDEF    9  /* Invalid predefined scheduler */
+#define ABT_ERR_INV_SCHED_TYPE     10  /* Invalid scheduler type */
+#define ABT_ERR_INV_SCHED_CONFIG   11  /* Invalid scheduler config */
+#define ABT_ERR_INV_POOL           12  /* Invalid pool */
+#define ABT_ERR_INV_POOL_KIND      13  /* Invalid pool kind */
+#define ABT_ERR_INV_POOL_ACCESS    14  /* Invalid pool access mode */
+#define ABT_ERR_INV_UNIT           15  /* Invalid scheduling unit */
+#define ABT_ERR_INV_THREAD         16  /* Invalid ULT */
+#define ABT_ERR_INV_THREAD_ATTR    17  /* Invalid ULT attribute */
+#define ABT_ERR_INV_TASK           18  /* Invalid task */
+#define ABT_ERR_INV_KEY            19  /* Invalid key */
+#define ABT_ERR_INV_MUTEX          20  /* Invalid mutex */
+#define ABT_ERR_INV_COND           21  /* Invalid condition variable */
+#define ABT_ERR_INV_EVENTUAL       22  /* Invalid eventual */
+#define ABT_ERR_INV_FUTURE         23  /* Invalid future */
+#define ABT_ERR_INV_BARRIER        24  /* Invalid barrier */
+#define ABT_ERR_INV_TIMER          25  /* Invalid timer */
+#define ABT_ERR_INV_EVENT          26  /* Invalid event */
+#define ABT_ERR_XSTREAM            27  /* ES-related error */
+#define ABT_ERR_XSTREAM_STATE      28  /* ES state error */
+#define ABT_ERR_XSTREAM_BARRIER    29  /* ES barrier-related error */
+#define ABT_ERR_SCHED              30  /* Scheduler-related error */
+#define ABT_ERR_SCHED_CONFIG       31  /* Scheduler config error */
+#define ABT_ERR_POOL               32  /* Pool-related error */
+#define ABT_ERR_UNIT               33  /* Scheduling unit-related error */
+#define ABT_ERR_THREAD             34  /* ULT-related error */
+#define ABT_ERR_TASK               35  /* Task-related error */
+#define ABT_ERR_KEY                36  /* Key-related error */
+#define ABT_ERR_MUTEX              37  /* Mutex-related error */
+#define ABT_ERR_MUTEX_LOCKED       38  /* Return value when mutex is locked */
+#define ABT_ERR_COND               39  /* Condition-related error */
+#define ABT_ERR_COND_TIMEDOUT      40  /* Return value when cond is timed out */
+#define ABT_ERR_EVENTUAL           41  /* Eventual-related error */
+#define ABT_ERR_FUTURE             42  /* Future-related error */
+#define ABT_ERR_BARRIER            43  /* Barrier-related error */
+#define ABT_ERR_TIMER              44  /* Timer-related error */
+#define ABT_ERR_EVENT              45  /* Event-related error */
+#define ABT_ERR_MIGRATION_TARGET   46  /* Migration target error */
+#define ABT_ERR_MIGRATION_NA       47  /* Migration not available */
+#define ABT_ERR_MISSING_JOIN       48  /* An ES or more did not join */
+#define ABT_ERR_FEATURE_NA         49  /* Feature not available */
+
+
+/* Constants */
+enum ABT_xstream_state {
+    ABT_XSTREAM_STATE_CREATED,
+    ABT_XSTREAM_STATE_READY,
+    ABT_XSTREAM_STATE_RUNNING,
+    ABT_XSTREAM_STATE_TERMINATED
+};
+
+enum ABT_thread_state {
+    ABT_THREAD_STATE_READY,
+    ABT_THREAD_STATE_RUNNING,
+    ABT_THREAD_STATE_BLOCKED,
+    ABT_THREAD_STATE_TERMINATED
+};
+
+enum ABT_task_state {
+    ABT_TASK_STATE_CREATED,
+    ABT_TASK_STATE_READY,
+    ABT_TASK_STATE_RUNNING,
+    ABT_TASK_STATE_TERMINATED
+};
+
+enum ABT_sched_state {
+    ABT_SCHED_STATE_READY,
+    ABT_SCHED_STATE_RUNNING,
+    ABT_SCHED_STATE_STOPPED,
+    ABT_SCHED_STATE_TERMINATED
+};
+
+enum ABT_sched_predef {
+    ABT_SCHED_DEFAULT,   /* Default scheduler */
+    ABT_SCHED_BASIC,     /* Basic scheduler */
+    ABT_SCHED_PRIO       /* Priority scheduler */
+};
+
+enum ABT_sched_type {
+    ABT_SCHED_TYPE_ULT,  /* can yield */
+    ABT_SCHED_TYPE_TASK  /* cannot yield */
+};
+
+enum ABT_pool_kind {
+    ABT_POOL_FIFO
+};
+
+enum ABT_pool_access {
+    ABT_POOL_ACCESS_PRIV, /* Used by only one ES */
+    ABT_POOL_ACCESS_SPSC, /* Producers on ES1, consumers on ES2 */
+    ABT_POOL_ACCESS_MPSC, /* Producers on any ES, consumers on the same ES */
+    ABT_POOL_ACCESS_SPMC, /* Producers on the same ES, consumers on any ES */
+    ABT_POOL_ACCESS_MPMC  /* Producers on any ES, consumers on any ES */
+};
+
+enum ABT_unit_type {
+    ABT_UNIT_TYPE_THREAD,
+    ABT_UNIT_TYPE_TASK,
+    ABT_UNIT_TYPE_XSTREAM,
+    ABT_UNIT_TYPE_EXT       /* External thread */
+};
+
+enum ABT_event_kind {
+    ABT_EVENT_STOP_XSTREAM,     /* stop the target ES */
+    ABT_EVENT_ADD_XSTREAM,      /* create a new ES */
+};
+
+
+/* Constants for ABT_bool */
+#define ABT_TRUE    1
+#define ABT_FALSE   0
+
+/* Rank for any ES */
+#define ABT_XSTREAM_ANY_RANK    -1
+
+/* Data Types */
+typedef void *                 ABT_xstream;         /* Execution Stream */
+typedef enum ABT_xstream_state ABT_xstream_state;   /* ES state */
+typedef void *                 ABT_xstream_barrier; /* ES barrier */
+typedef void *                 ABT_sched;           /* Scheduler */
+typedef void *                 ABT_sched_config;    /* Sched-specific config */
+typedef enum ABT_sched_predef  ABT_sched_predef;    /* Predefined scheduler */
+typedef enum ABT_sched_state   ABT_sched_state;     /* Scheduler state */
+typedef enum ABT_sched_type    ABT_sched_type;      /* Scheduler type */
+typedef void *                 ABT_pool;            /* Pool */
+typedef void *                 ABT_pool_config;     /* Specific pool config */
+typedef enum ABT_pool_kind     ABT_pool_kind;       /* Pool kind */
+typedef enum ABT_pool_access   ABT_pool_access;     /* Pool access mode */
+typedef void *                 ABT_unit;            /* Unit */
+typedef enum ABT_unit_type     ABT_unit_type;       /* Unit type */
+typedef void *                 ABT_thread;          /* User-Level Thread (ULT) */
+typedef void *                 ABT_thread_attr;     /* ULT attribute */
+typedef enum ABT_thread_state  ABT_thread_state;    /* ULT state */
+typedef uint64_t               ABT_thread_id;       /* ULT id */
+typedef void *                 ABT_task;            /* Tasklet */
+typedef enum ABT_task_state    ABT_task_state;      /* Tasklet state */
+typedef void *                 ABT_key;             /* WU-specific data key */
+typedef void *                 ABT_mutex;           /* Mutex */
+typedef void *                 ABT_cond;            /* Condition variable */
+typedef void *                 ABT_eventual;        /* Eventual */
+typedef void *                 ABT_future;          /* Future */
+typedef void *                 ABT_barrier;         /* Barrier */
+typedef void *                 ABT_timer;           /* Timer */
+typedef int                    ABT_bool;            /* Boolean type */
+typedef enum ABT_event_kind    ABT_event_kind;      /* Event kind */
+
+
+/* Null Object Handles */
+#define ABT_NULL 0
+#if ABT_NULL == 1
+#define ABT_XSTREAM_NULL         ((ABT_xstream)        NULL)
+#define ABT_XSTREAM_BARRIER_NULL ((ABT_xstream_barrier)NULL)
+#define ABT_SCHED_NULL           ((ABT_sched)          NULL)
+#define ABT_SCHED_CONFIG_NULL    ((ABT_sched_config)   NULL)
+#define ABT_POOL_NULL            ((ABT_pool)           NULL)
+#define ABT_POOL_CONFIG_NULL     ((ABT_pool_config)    NULL)
+#define ABT_UNIT_NULL            ((ABT_unit)           NULL)
+#define ABT_THREAD_NULL          ((ABT_thread)         NULL)
+#define ABT_THREAD_ATTR_NULL     ((ABT_thread_attr)    NULL)
+#define ABT_TASK_NULL            ((ABT_task)           NULL)
+#define ABT_KEY_NULL             ((ABT_key)            NULL)
+#define ABT_MUTEX_NULL           ((ABT_mutex)          NULL)
+#define ABT_COND_NULL            ((ABT_cond)           NULL)
+#define ABT_EVENTUAL_NULL        ((ABT_eventual)       NULL)
+#define ABT_FUTURE_NULL          ((ABT_future)         NULL)
+#define ABT_BARRIER_NULL         ((ABT_barrier)        NULL)
+#define ABT_TIMER_NULL           ((ABT_timer)          NULL)
+#else
+#define ABT_XSTREAM_NULL         ((ABT_xstream)        (0x01))
+#define ABT_XSTREAM_BARRIER_NULL ((ABT_xstream_barrier)(0x02))
+#define ABT_SCHED_NULL           ((ABT_sched)          (0x03))
+#define ABT_SCHED_CONFIG_NULL    ((ABT_sched_config)   (0x04))
+#define ABT_POOL_NULL            ((ABT_pool)           (0x05))
+#define ABT_POOL_CONFIG_NULL     ((ABT_pool_config)    (0x06))
+#define ABT_UNIT_NULL            ((ABT_unit)           (0x07))
+#define ABT_THREAD_NULL          ((ABT_thread)         (0x08))
+#define ABT_THREAD_ATTR_NULL     ((ABT_thread_attr)    (0x09))
+#define ABT_TASK_NULL            ((ABT_task)           (0x0a))
+#define ABT_KEY_NULL             ((ABT_key)            (0x0b))
+#define ABT_MUTEX_NULL           ((ABT_mutex)          (0x0c))
+#define ABT_COND_NULL            ((ABT_cond)           (0x0d))
+#define ABT_EVENTUAL_NULL        ((ABT_eventual)       (0x0e))
+#define ABT_FUTURE_NULL          ((ABT_future)         (0x0f))
+#define ABT_BARRIER_NULL         ((ABT_barrier)        (0x10))
+#define ABT_TIMER_NULL           ((ABT_timer)          (0x11))
+#endif
+
+/* Scheduler config */
+typedef enum {
+    ABT_SCHED_CONFIG_INT    = 0, /* Parameter of type int */
+    ABT_SCHED_CONFIG_DOUBLE = 1, /* Parameter of type double */
+    ABT_SCHED_CONFIG_PTR    = 2, /* Parameter of type pointer */
+} ABT_sched_config_type;
+
+typedef struct {
+  int idx;
+  ABT_sched_config_type type;
+} ABT_sched_config_var;
+
+extern ABT_sched_config_var ABT_sched_config_var_end;
+  /* To mark the last parameter in ABT_sched_config_create */
+extern ABT_sched_config_var ABT_sched_basic_freq;
+  /* To configure the frequency for checking events of the basic scheduler */
+extern ABT_sched_config_var ABT_sched_config_access;
+  /* To configure the access type of the pools created automatically */
+
+/* Scheduler Functions */
+typedef int      (*ABT_sched_init_fn)(ABT_sched, ABT_sched_config);
+typedef void     (*ABT_sched_run_fn)(ABT_sched);
+typedef int      (*ABT_sched_free_fn)(ABT_sched);
+/* To get a pool ready for receiving a migration */
+typedef ABT_pool (*ABT_sched_get_migr_pool_fn)(ABT_sched);
+
+typedef struct {
+    ABT_sched_type type; /* ULT or tasklet */
+
+    /* Functions of the scheduler */
+    ABT_sched_init_fn          init;
+    ABT_sched_run_fn           run;
+    ABT_sched_free_fn          free;
+    ABT_sched_get_migr_pool_fn get_migr_pool;
+} ABT_sched_def;
+
+/* Pool Functions */
+typedef ABT_unit_type (*ABT_unit_get_type_fn)(ABT_unit);
+typedef ABT_thread    (*ABT_unit_get_thread_fn)(ABT_unit);
+typedef ABT_task      (*ABT_unit_get_task_fn)(ABT_unit);
+typedef ABT_bool      (*ABT_unit_is_in_pool_fn)(ABT_unit);
+typedef ABT_unit      (*ABT_unit_create_from_thread_fn)(ABT_thread);
+typedef ABT_unit      (*ABT_unit_create_from_task_fn)(ABT_task);
+typedef void          (*ABT_unit_free_fn)(ABT_unit *);
+typedef int           (*ABT_pool_init_fn)(ABT_pool, ABT_pool_config);
+typedef size_t        (*ABT_pool_get_size_fn)(ABT_pool);
+typedef void          (*ABT_pool_push_fn)(ABT_pool, ABT_unit);
+typedef ABT_unit      (*ABT_pool_pop_fn)(ABT_pool);
+typedef int           (*ABT_pool_remove_fn)(ABT_pool, ABT_unit);
+typedef int           (*ABT_pool_free_fn)(ABT_pool);
+
+typedef struct {
+    ABT_pool_access access; /* Access type */
+
+    /* Functions to manage units */
+    ABT_unit_get_type_fn           u_get_type;
+    ABT_unit_get_thread_fn         u_get_thread;
+    ABT_unit_get_task_fn           u_get_task;
+    ABT_unit_is_in_pool_fn         u_is_in_pool;
+    ABT_unit_create_from_thread_fn u_create_from_thread;
+    ABT_unit_create_from_task_fn   u_create_from_task;
+    ABT_unit_free_fn               u_free;
+
+    /* Functions to manage the pool */
+    ABT_pool_init_fn     p_init;
+    ABT_pool_get_size_fn p_get_size;
+    ABT_pool_push_fn     p_push;
+    ABT_pool_pop_fn      p_pop;
+    ABT_pool_remove_fn   p_remove;
+    ABT_pool_free_fn     p_free;
+} ABT_pool_def;
+
+
+/* Init & Finalize */
+int ABT_init(int argc, char **argv);
+int ABT_finalize(void);
+int ABT_initialized(void);
+
+/* Execution Stream (ES) */
+int ABT_xstream_create(ABT_sched sched, ABT_xstream *newxstream);
+int ABT_xstream_create_basic(ABT_sched_predef predef, int num_pools,
+                             ABT_pool *pools, ABT_sched_config config,
+                             ABT_xstream *newxstream);
+int ABT_xstream_create_with_rank(ABT_sched sched, int rank,
+                                 ABT_xstream *newxstream);
+int ABT_xstream_start(ABT_xstream xstream);
+int ABT_xstream_free(ABT_xstream *xstream);
+int ABT_xstream_join(ABT_xstream xstream);
+int ABT_xstream_exit(void);
+int ABT_xstream_cancel(ABT_xstream xstream);
+int ABT_xstream_self(ABT_xstream *xstream);
+int ABT_xstream_self_rank(int *rank);
+int ABT_xstream_set_rank(ABT_xstream xstream, const int rank);
+int ABT_xstream_get_rank(ABT_xstream xstream, int *rank);
+int ABT_xstream_set_main_sched(ABT_xstream xstream, ABT_sched sched);
+int ABT_xstream_set_main_sched_basic(ABT_xstream xstream,
+                                     ABT_sched_predef predef,
+                                     int num_pools, ABT_pool *pools);
+int ABT_xstream_get_main_sched(ABT_xstream xstream, ABT_sched *sched);
+int ABT_xstream_get_main_pools(ABT_xstream xstream, int max_pools,
+                               ABT_pool *pools);
+int ABT_xstream_get_state(ABT_xstream xstream, ABT_xstream_state *state);
+int ABT_xstream_equal(ABT_xstream xstream1, ABT_xstream xstream2,
+                      ABT_bool *result);
+int ABT_xstream_get_num(int *num_xstreams);
+int ABT_xstream_is_primary(ABT_xstream xstream, ABT_bool *flag);
+int ABT_xstream_run_unit(ABT_unit unit, ABT_pool pool);
+int ABT_xstream_check_events(ABT_sched sched);
+int ABT_xstream_set_cpubind(ABT_xstream xstream, int cpuid);
+int ABT_xstream_get_cpubind(ABT_xstream xstream, int *cpuid);
+int ABT_xstream_set_affinity(ABT_xstream xstream, int cpuset_size, int *cpuset);
+int ABT_xstream_get_affinity(ABT_xstream xstream, int cpuset_size, int *cpuset,
+                             int *num_cpus);
+
+/* ES Barrier */
+int ABT_xstream_barrier_create(uint32_t num_waiters, ABT_xstream_barrier *newbarrier);
+int ABT_xstream_barrier_free(ABT_xstream_barrier *barrier);
+int ABT_xstream_barrier_wait(ABT_xstream_barrier barrier);
+
+/* Scheduler */
+int ABT_sched_create(ABT_sched_def *def, int num_pools, ABT_pool *pools,
+                     ABT_sched_config config, ABT_sched *newsched);
+int ABT_sched_create_basic(ABT_sched_predef predef, int num_pools,
+                           ABT_pool *pools, ABT_sched_config config,
+                           ABT_sched *newsched);
+int ABT_sched_free(ABT_sched *sched);
+int ABT_sched_set_data(ABT_sched sched, void *data);
+int ABT_sched_get_data(ABT_sched sched, void **data);
+int ABT_sched_get_num_pools(ABT_sched sched, int *num_pools);
+int ABT_sched_get_pools(ABT_sched sched, int max_pools, int idx,
+                        ABT_pool *pools);
+int ABT_sched_get_size(ABT_sched sched, size_t *size);
+int ABT_sched_get_total_size(ABT_sched sched, size_t *size);
+int ABT_sched_finish(ABT_sched sched);
+int ABT_sched_exit(ABT_sched sched);
+int ABT_sched_has_to_stop(ABT_sched sched, ABT_bool *stop);
+
+/* Scheduler config */
+int ABT_sched_config_create(ABT_sched_config *config, ...);
+int ABT_sched_config_read(ABT_sched_config config, int num_vars, ...);
+int ABT_sched_config_free(ABT_sched_config *config);
+
+/* Pool */
+int ABT_pool_create(ABT_pool_def *def, ABT_pool_config config,
+                    ABT_pool *newpool);
+int ABT_pool_create_basic(ABT_pool_kind kind, ABT_pool_access access,
+                          ABT_bool automatic, ABT_pool *newpool);
+int ABT_pool_free(ABT_pool *pool);
+int ABT_pool_get_access(ABT_pool pool, ABT_pool_access *access);
+int ABT_pool_get_size(ABT_pool pool, size_t *size);
+int ABT_pool_get_total_size(ABT_pool pool, size_t *size);
+int ABT_pool_pop(ABT_pool pool, ABT_unit *unit);
+int ABT_pool_remove(ABT_pool pool, ABT_unit unit);
+int ABT_pool_push(ABT_pool pool, ABT_unit unit);
+int ABT_pool_set_data(ABT_pool pool, void *data);
+int ABT_pool_get_data(ABT_pool pool, void **data);
+int ABT_pool_add_sched(ABT_pool pool, ABT_sched sched);
+int ABT_pool_get_id(ABT_pool pool, int *id);
+
+/* User-level Thread (ULT) */
+int ABT_thread_create(ABT_pool pool, void (*thread_func)(void *), void *arg,
+                      ABT_thread_attr attr, ABT_thread *newthread);
+int ABT_thread_create_on_xstream(ABT_xstream xstream,
+                      void (*thread_func)(void *), void *arg,
+                      ABT_thread_attr attr, ABT_thread *newthread);
+int ABT_thread_revive(ABT_pool pool, void(*thread_func)(void *), void *arg,
+                      ABT_thread *thread);
+int ABT_thread_free(ABT_thread *thread);
+int ABT_thread_join(ABT_thread thread);
+int ABT_thread_exit(void);
+int ABT_thread_cancel(ABT_thread thread);
+int ABT_thread_self(ABT_thread *thread);
+int ABT_thread_self_id(ABT_thread_id *id);
+int ABT_thread_get_state(ABT_thread thread, ABT_thread_state *state);
+int ABT_thread_get_last_pool(ABT_thread thread, ABT_pool *pool);
+int ABT_thread_get_last_pool_id(ABT_thread thread, int *id);
+int ABT_thread_yield_to(ABT_thread thread);
+int ABT_thread_yield(void);
+int ABT_thread_resume(ABT_thread thread);
+int ABT_thread_migrate_to_xstream(ABT_thread thread, ABT_xstream xstream);
+int ABT_thread_migrate_to_sched(ABT_thread thread, ABT_sched sched);
+int ABT_thread_migrate_to_pool(ABT_thread thread, ABT_pool pool);
+int ABT_thread_migrate(ABT_thread thread);
+int ABT_thread_set_callback(ABT_thread thread,
+        void(*cb_func)(ABT_thread thread, void *cb_arg), void *cb_arg);
+int ABT_thread_set_migratable(ABT_thread thread, ABT_bool flag);
+int ABT_thread_is_migratable(ABT_thread thread, ABT_bool *flag);
+int ABT_thread_is_primary(ABT_thread thread, ABT_bool *flag);
+int ABT_thread_equal(ABT_thread thread1, ABT_thread thread2, ABT_bool *result);
+int ABT_thread_retain(ABT_thread thread);
+int ABT_thread_release(ABT_thread thread);
+int ABT_thread_get_stacksize(ABT_thread thread, size_t *stacksize);
+int ABT_thread_get_id(ABT_thread thread, ABT_thread_id *thread_id);
+int ABT_thread_get_arg(ABT_thread thread, void **arg);
+int ABT_thread_get_attr(ABT_thread thread, ABT_thread_attr *attr);
+
+/* ULT Attributes */
+int ABT_thread_attr_create(ABT_thread_attr *newattr);
+int ABT_thread_attr_free(ABT_thread_attr *attr);
+int ABT_thread_attr_set_stack(ABT_thread_attr attr, void *stackaddr,
+                              size_t stacksize);
+int ABT_thread_attr_get_stack(ABT_thread_attr attr, void **stackaddr,
+                              size_t *stacksize);
+int ABT_thread_attr_set_stacksize(ABT_thread_attr attr, size_t stacksize);
+int ABT_thread_attr_get_stacksize(ABT_thread_attr attr, size_t *stacksize);
+int ABT_thread_attr_set_callback(ABT_thread_attr attr,
+        void(*cb_func)(ABT_thread thread, void *cb_arg), void *cb_arg);
+int ABT_thread_attr_set_migratable(ABT_thread_attr attr, ABT_bool flag);
+
+/* Tasklet */
+int ABT_task_create(ABT_pool pool, void (*task_func)(void *), void *arg,
+                    ABT_task *newtask);
+int ABT_task_create_on_xstream(ABT_xstream xstream, void (*task_func)(void *),
+                    void *arg, ABT_task *newtask);
+int ABT_task_revive(ABT_pool pool, void (*task_func)(void *), void *arg,
+                    ABT_task *task);
+int ABT_task_free(ABT_task *task);
+int ABT_task_join(ABT_task task);
+int ABT_task_cancel(ABT_task task);
+int ABT_task_self(ABT_task *task);
+int ABT_task_self_id(uint64_t *id);
+int ABT_task_get_xstream(ABT_task task, ABT_xstream *xstream);
+int ABT_task_get_state(ABT_task task, ABT_task_state *state);
+int ABT_task_get_last_pool(ABT_task task, ABT_pool *pool);
+int ABT_task_get_last_pool_id(ABT_task task, int *id);
+int ABT_task_set_migratable(ABT_task task, ABT_bool flag);
+int ABT_task_is_migratable(ABT_task task, ABT_bool *flag);
+int ABT_task_equal(ABT_task task1, ABT_task task2, ABT_bool *result);
+int ABT_task_retain(ABT_task task);
+int ABT_task_release(ABT_task task);
+int ABT_task_get_id(ABT_task task, uint64_t *task_id);
+int ABT_task_get_arg(ABT_task task, void **arg);
+
+/* Self */
+int ABT_self_get_type(ABT_unit_type *type);
+int ABT_self_is_primary(ABT_bool *flag);
+int ABT_self_on_primary_xstream(ABT_bool *flag);
+int ABT_self_get_last_pool_id(int *pool_id);
+int ABT_self_suspend(void);
+int ABT_self_get_arg(void **arg);
+
+/* ULT-specific data */
+int ABT_key_create(void (*destructor)(void *value), ABT_key *newkey);
+int ABT_key_free(ABT_key *key);
+int ABT_key_set(ABT_key key, void *value);
+int ABT_key_get(ABT_key key, void **value);
+
+/* Mutex */
+int ABT_mutex_create(ABT_mutex *newmutex);
+int ABT_mutex_free(ABT_mutex *mutex);
+int ABT_mutex_lock(ABT_mutex mutex);
+int ABT_mutex_lock_low(ABT_mutex mutex);
+int ABT_mutex_trylock(ABT_mutex mutex);
+int ABT_mutex_spinlock(ABT_mutex mutex);
+int ABT_mutex_unlock(ABT_mutex mutex);
+int ABT_mutex_unlock_se(ABT_mutex mutex);
+int ABT_mutex_equal(ABT_mutex mutex1, ABT_mutex mutex2, ABT_bool *result);
+
+/* Condition variable */
+int ABT_cond_create(ABT_cond *newcond);
+int ABT_cond_free(ABT_cond *cond);
+int ABT_cond_wait(ABT_cond cond, ABT_mutex mutex);
+int ABT_cond_timedwait(ABT_cond cond, ABT_mutex mutex,
+                       const struct timespec *abstime);
+int ABT_cond_signal(ABT_cond cond);
+int ABT_cond_broadcast(ABT_cond cond);
+
+/* Eventual */
+int ABT_eventual_create(int nbytes, ABT_eventual *neweventual);
+int ABT_eventual_free(ABT_eventual *eventual);
+int ABT_eventual_wait(ABT_eventual eventual, void **value);
+int ABT_eventual_set(ABT_eventual eventual, void *value, int nbytes);
+
+/* Futures */
+int ABT_future_create(uint32_t compartments, void (*cb_func)(void **arg),
+                      ABT_future *newfuture);
+int ABT_future_free(ABT_future *future);
+int ABT_future_wait(ABT_future future);
+int ABT_future_test(ABT_future future, ABT_bool *flag);
+int ABT_future_set(ABT_future future, void *value);
+
+/* Barrier */
+int ABT_barrier_create(uint32_t num_waiters, ABT_barrier *newbarrier);
+int ABT_barrier_free(ABT_barrier *barrier);
+int ABT_barrier_wait(ABT_barrier barrier);
+
+/* Error */
+int ABT_error_get_str(int err, char *str, size_t *len);
+
+/* Timer */
+double ABT_get_wtime(void);
+int ABT_timer_create(ABT_timer *newtimer);
+int ABT_timer_dup(ABT_timer timer, ABT_timer *newtimer);
+int ABT_timer_free(ABT_timer *timer);
+int ABT_timer_start(ABT_timer timer);
+int ABT_timer_stop(ABT_timer timer);
+int ABT_timer_read(ABT_timer timer, double *secs);
+int ABT_timer_stop_and_read(ABT_timer timer, double *secs);
+int ABT_timer_stop_and_add(ABT_timer timer, double *secs);
+int ABT_timer_get_overhead(double *overhead);
+
+/* Event */
+typedef ABT_bool (*ABT_event_cb_fn)(void *user_arg, void *abt_arg);
+int ABT_event_add_callback(ABT_event_kind event,
+                           ABT_event_cb_fn ask_cb, void *ask_user_arg,
+                           ABT_event_cb_fn act_cb, void *act_user_arg,
+                           int *cb_id);
+int ABT_event_del_callback(ABT_event_kind event, int cb_id);
+
+#if defined(__cplusplus)
+}
+#endif
+
+#endif /* ABT_H_INCLUDED */
