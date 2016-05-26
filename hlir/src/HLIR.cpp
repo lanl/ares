@@ -746,13 +746,22 @@ void HLIRModule::lowerTask_(HLIRTask* task){
         if(Instruction* i = dyn_cast<Instruction>(itr->getUser())){
           b.SetInsertPoint(i);
 
+          BasicBlock* splitBlock = i->getParent();
+          BasicBlock* splitAfter = splitBlock->splitBasicBlock(i, "split.after");
+
+          splitBlock->getTerminator()->removeFromParent();
+
+          b.SetInsertPoint(splitBlock);
+
+          BasicBlock* loopBlock = BasicBlock::Create(c, "loop.block", parentFunc);
+
+          b.CreateBr(loopBlock);
+
 #ifdef USE_ARGOBOTS
 
-          BasicBlock* loopBlock = BasicBlock::Create(c, "loop.block", func);
-          BasicBlock* mergeBlock = BasicBlock::Create(c, "merge.block", func);
-          BasicBlock* yieldBlock = BasicBlock::Create(c, "yield.block", func);
+          BasicBlock* mergeBlock = BasicBlock::Create(c, "merge.block", parentFunc);
+          BasicBlock* yieldBlock = BasicBlock::Create(c, "yield.block", parentFunc);
           
-          b.CreateBr(loopBlock);
           b.SetInsertPoint(loopBlock);
 
           Function* awaitFunc = 
@@ -767,8 +776,7 @@ void HLIRModule::lowerTask_(HLIRTask* task){
 
           b.SetInsertPoint(yieldBlock);
 
-          Function* yieldFunc = 
-            getFunction("__ares_thread_yield", TypeVec());
+          Function* yieldFunc = getFunction("__ares_thread_yield", TypeVec());
             
           b.CreateCall(yieldFunc);
 
@@ -787,6 +795,9 @@ void HLIRModule::lowerTask_(HLIRTask* task){
 
           ci->replaceAllUsesWith(retVal);
 
+          b.CreateBr(splitAfter);
+          b.SetInsertPoint(splitAfter);
+
           break;
         }
       }
@@ -794,7 +805,7 @@ void HLIRModule::lowerTask_(HLIRTask* task){
       ci->eraseFromParent();
 
       //parentFunc->dump();
-    }
+    }    
   }
 }
 
