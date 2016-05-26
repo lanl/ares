@@ -71,7 +71,7 @@ namespace ares {
     // initialize an argbots pool and perform any argobots initialization needed
     // assume for now that this class is a singleton - the ARES runtime will
     // create exactly one ArgoPool
-    ArgoPool(int argc, char *argv[]);
+    ArgoPool(int argc, char *argv[], size_t numStreams);
     ~ArgoPool();
     
     // queue a function pointer for execution with args

@@ -10,7 +10,7 @@ namespace ares {
   ABT_xstream ArgoPool::xstreams[2];
   ABT_pool ArgoPool::pools[2];
 
-  ArgoPool::ArgoPool(int argc, char *argv[]) {
+  ArgoPool::ArgoPool(int argc, char *argv[], size_t numStreams) {
     // can only have one instance of ArgoPool
     assert(ABT_initialized() == ABT_ERR_UNINITIALIZED);
     // start ArgoBots
