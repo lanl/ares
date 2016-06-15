@@ -18,18 +18,31 @@
 #include <stdio.h>
 #include <unistd.h>
 
+int work1(int i) {
+  int k = 0;
+  for (int j = 0; j != i; j++)
+    k+=j;
+  return k;
+}
+
+int work2(int i) {
+  return i;
+}
+
 using namespace ares;
 
 void fun(void *arg) {
   int i = (int)(intptr_t)arg;
-  fprintf(stderr, "fun(%d) before yield\n", i);
+  int j = work1(i);
+  fprintf(stderr, "fun(%d) before yield %d\n", i, j);
   ArgoPool::AP_yield();
-  fprintf(stderr, "fun(%d) after yield\n", i);
+  j = work1(i);
+  fprintf(stderr, "fun(%d) after yield %d\n", i, j);
 }
 
 int main(int argc, char *argv[]) {
-  ArgoPool ap(argc, argv, /*numStreams*/ 4);
-  for (intptr_t arg = 1; arg != 11; arg++) {
+  ArgoPool ap(argc, argv, /*numStreams*/ 16);
+  for (intptr_t arg = 1; arg != 1000; arg++) {
     ArgoPool::AP_push(fun, (void *)(uintptr_t)arg, 0);
   }
 }
