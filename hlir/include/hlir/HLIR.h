@@ -61,11 +61,13 @@
 #include <cassert>
 #include <sstream>
 #include <iostream>
+#include <unordered_map>
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "HLIRError.h"
@@ -942,6 +944,8 @@ namespace ares{
       return get<HLIRString>("language");
     }
 
+    void addConstruct(HLIRConstruct* c);
+
     llvm::Function* getIntrinsic(const std::string& name){
       std::string fullName = "hlir." + name;
 
@@ -1003,12 +1007,21 @@ namespace ares{
     }
 
     bool lowerToIR_();
-
-    void lowerParallelFor_(HLIRParallelFor* pfor);
+    
+    void lowerParallelFor_(HLIRParallelFor* pfor,
+                           llvm::StructType* argsType,
+                           std::unordered_map<llvm::Value*, size_t>& capturedMap);
 
     void lowerParallelReduce_(HLIRParallelReduce* reduce);
 
     void lowerTask_(HLIRTask* task);
+
+    void findExternalValues_(llvm::Function* f,
+                             std::vector<llvm::Instruction*>& v,
+                             bool recursive,
+                             bool top,
+                             std::vector<HLIRParallelFor*>& ps,
+                             std::vector<HLIRParallelReduce*>& rs);
 
     llvm::Value* toInt8(const HLIRInteger& i){
       return llvm::ConstantInt::get(i8Ty, i);
@@ -1049,7 +1062,7 @@ namespace ares{
     llvm::LLVMContext& context_;
     llvm::IRBuilder<> builder_;
 
-    std::vector<HLIRConstruct*> constructs_;
+    std::unordered_map<llvm::Instruction*, HLIRConstruct*> constructMap_;
   };
 
   class HLIRTaskParam : public HLIRMap{
@@ -1099,6 +1112,11 @@ namespace ares{
     void insert(llvm::IRBuilder<P, C, I>& builder){
       (*this)["marker"] = 
         builder.CreateCall(module_->getIntrinsic(intrinsic()));
+        module_->addConstruct(this);
+    }
+
+    HLIRInstruction& marker(){
+      return get<HLIRInstruction>("marker"); 
     }
 
   protected:

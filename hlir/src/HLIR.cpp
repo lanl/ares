@@ -56,7 +56,7 @@
 
 #include <mutex>
 
-//#define USE_ARGOBOTS 1
+#define USE_ARGOBOTS 1
 
 using namespace std;
 using namespace llvm;
@@ -86,20 +86,6 @@ namespace{
     return prefix + toStr(createId());
   }
 
-  void findExternalValues(Function* f, vector<Instruction*>& v){
-    for(BasicBlock& bi : *f){
-      for(Instruction& ii : bi){
-        for(Value* vi : ii.operands()){
-          if(Instruction* ij = dyn_cast<Instruction>(vi)){
-            if(ij->getParent()->getParent() != f){
-              v.push_back(ij);
-            }
-          }
-        }
-      }
-    }
-  }
-
   static const size_t REDUCE_THREADS = 8;
 
 } // namespace
@@ -119,9 +105,12 @@ HLIRModule* HLIRModule::getModule(Module* module){
   return itr->second;
 }
 
+void HLIRModule::addConstruct(HLIRConstruct* c){
+  constructMap_.emplace(c->marker(), c);
+}
+
 HLIRParallelFor* HLIRModule::createParallelFor(){
   auto pf = new HLIRParallelFor(this);
-  constructs_.push_back(pf);
 
   string name = createName("pfor");
   pf->setName(name);
@@ -135,7 +124,6 @@ HLIRParallelReduce* HLIRModule::createParallelReduce(
   const HLIRType& reduceType){
   
   auto r = new HLIRParallelReduce(this, reduceType);
-  constructs_.push_back(r);
 
   string name = createName("reduce");
   r->setName(name);
@@ -147,8 +135,7 @@ HLIRParallelReduce* HLIRModule::createParallelReduce(
 
 HLIRTask* HLIRModule::createTask(){
   auto task = new HLIRTask(this);
-  constructs_.push_back(task);
-
+  
   string name = createName("task");
   task->setName(name);
 
@@ -157,61 +144,137 @@ HLIRTask* HLIRModule::createTask(){
   return task;
 }
 
-void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
-  //cerr << "---------- module before" << endl;
-  //module_->dump();
-  
-  //auto insertion = pf->get<HLIRInstruction>("insertion");
-  //insertion->removeFromParent();
+void HLIRModule::findExternalValues_(Function* f,
+                                     vector<Instruction*>& v,
+                                     bool recursive,
+                                     bool top,
+                                     vector<HLIRParallelFor*>& ps,
+                                     vector<HLIRParallelReduce*>& rs){
+  for(BasicBlock& bi : *f){
+    for(Instruction& ii : bi){
+      bool handled = false;
+
+      if(CallInst* ci = dyn_cast<CallInst>(&ii)){
+        auto itr = constructMap_.find(ci);
+        
+        if(itr != constructMap_.end()){
+          HLIRConstruct* hc = itr->second;
+          if(auto pf = dynamic_cast<HLIRParallelFor*>(hc)){
+            if(top){
+              ps.push_back(pf);
+            }
+            
+            if(recursive){
+              findExternalValues_(pf->body(), v, recursive, false, ps, rs);
+            }
+          }
+          else if(auto pr = dynamic_cast<HLIRParallelReduce*>(hc)){
+            if(top){
+              rs.push_back(pr);
+            }
+
+            if(recursive){
+              findExternalValues_(pr->body(), v, recursive, false, ps, rs);
+            }
+          }
+          
+          handled = true;
+        }
+      }
+
+      if(handled){
+        continue;
+      }
+      
+      for(Value* vi : ii.operands()){
+        if(Instruction* ij = dyn_cast<Instruction>(vi)){
+          if(ij->getParent()->getParent() != f){
+            v.push_back(ij);
+          }
+        }
+      }
+    }
+  }
+}
+
+void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
+                                   StructType* argsType,
+                                   unordered_map<Value*, size_t>& capturedMap){
+
+  auto& c = module_->getContext();
+  IRBuilder<> b(c);
 
   auto marker = pf->get<HLIRInstruction>("marker");
   BasicBlock* block = marker->getParent();
   Function* func = block->getParent();
-  
-  Value* one = ConstantInt::get(i32Ty, 1);      
-  
-  auto& c = module_->getContext();
 
-  IRBuilder<> b(c);
+  bool top = !func->getName().startswith("hlir.parallel_for.body");
 
-  TypeVec fields;
-
-  vector<Instruction*> v;
-  findExternalValues(pf->body(), v);
-  for(Instruction* vi : v){
-    fields.push_back(vi->getType());    
+  if(!top && !argsType){
+    return;
   }
 
-  StructType* argsType = StructType::create(c, fields, "struct.func_args");
+  vector<Instruction*> rvs;
 
+  vector<HLIRParallelFor*> rps;
+  vector<HLIRParallelReduce*> rrs;
+
+  findExternalValues_(pf->body(), rvs, true, true, rps, rrs);
+
+  vector<Instruction*> vs;
+
+  vector<HLIRParallelFor*> ps;
+  vector<HLIRParallelReduce*> rs;
+
+  findExternalValues_(pf->body(), vs, true, false, ps, rs);
+
+  if(top){
+    TypeVec fields;
+    size_t i = 0;
+
+    for(auto vi : rvs){
+      fields.push_back(vi->getType()); 
+      capturedMap.emplace(vi, i++);   
+    }
+
+    argsType = StructType::create(c, fields, "struct.func_args");
+  }
+ 
   auto argsInsertion = pf->get<HLIRInstruction>("argsInsertion");
   b.SetInsertPoint(argsInsertion); 
 
   Value* argsStructPtr = 
     b.CreateBitCast(pf->args(), PointerType::get(argsType, 0));
 
-  size_t i = 0;
-  for(Instruction* vi : v){
-    Value* gi = b.CreateStructGEP(argsType, argsStructPtr, i);
-    Value* ri = b.CreateLoad(gi, vi->getName());
-    
+  for(Instruction* vi : vs){    
+    Value* ri = nullptr;
+
     for(Use& u : vi->uses()){
       User* user = u.getUser();
+
       auto inst = dyn_cast<Instruction>(user);
+      
       if(inst && inst->getParent()->getParent() == pf->body()){
+        auto itr = capturedMap.find(vi);
+        assert(itr != capturedMap.end());
+        size_t index = itr->second;
+
+        if(!ri){
+          Value* gi = b.CreateStructGEP(argsType, argsStructPtr, index);
+          ri = b.CreateLoad(gi, vi->getName());
+        }
+
         user->replaceUsesOfWith(vi, ri);
       }
     }
-
-    ++i;
   }
 
   b.SetInsertPoint(marker);      
 
   Value* argsPtr = b.CreateAlloca(argsType);
 
-  for(size_t i = 0; i < v.size(); ++i){
-    Value* vi = v[i];
+  for(size_t i = 0; i < vs.size(); ++i){
+    Value* vi = vs[i];
     Value* pi = b.CreateStructGEP(argsType, argsPtr, i);
     b.CreateStore(vi, pi);    
   }
@@ -244,6 +307,8 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   b.SetInsertPoint(loopBlock);
 
   Value* bodyFunc = pf->body();
+
+  Value* one = ConstantInt::get(i32Ty, 1);      
   
   Value* index = b.CreateLoad(indexPtr);
 
@@ -273,13 +338,8 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf){
   b.CreateCall(awaitFunc, {synchPtr});
   
   b.CreateBr(blockAfter);
-  
-  //bodyFunc->dump();
-  
-  //func->dump();
 
-  //cerr << "---------- final module" << endl;
-  //module_->dump();  
+  //bodyFunc->for_);
 }
 
 void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
@@ -532,7 +592,13 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   TypeVec captureFields;
 
   vector<Instruction*> v;
-  findExternalValues(r->body(), v);
+  vector<Instruction*> rc;
+
+  std::vector<HLIRParallelFor*> ps;
+  std::vector<HLIRParallelReduce*> rs;
+
+  findExternalValues_(r->body(), v, true, true, ps, rs);
+  
   for(Instruction* vi : v){
     captureFields.push_back(vi->getType());    
   }
@@ -810,9 +876,11 @@ void HLIRModule::lowerTask_(HLIRTask* task){
 }
 
 bool HLIRModule::lowerToIR_(){
-  for(HLIRConstruct* c : constructs_){
+  for(auto& itr : constructMap_){
+    HLIRConstruct* c = itr.second;
     if(auto pfor = dynamic_cast<HLIRParallelFor*>(c)){
-      lowerParallelFor_(pfor);
+      unordered_map<Value*, size_t> m;
+      lowerParallelFor_(pfor, nullptr, m);
     }
     else if(auto r = dynamic_cast<HLIRParallelReduce*>(c)){
       lowerParallelReduce_(r);
@@ -824,6 +892,9 @@ bool HLIRModule::lowerToIR_(){
       assert(false && "unknown HLIR construct");
     }
   }
+
+  //cerr << "---------- final module" << endl;
+  //module_->dump();  
 
   return true;
 }

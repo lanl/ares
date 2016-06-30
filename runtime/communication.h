@@ -54,6 +54,7 @@
 
 #include <sys/time.h>
 #include <unistd.h>
+#include <cstring>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -65,6 +66,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <unistd.h>
+#include <strings.h>
 
 #include "CVSemaphore.h"
 

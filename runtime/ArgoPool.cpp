@@ -4,7 +4,7 @@
 // abt.h does the extern "C" wrapping
 #include "abt.h"
 #include <assert.h>
-#include <malloc.h>
+#include <stdlib.h>
 
 namespace ares {
 
