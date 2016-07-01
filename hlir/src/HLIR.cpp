@@ -189,9 +189,7 @@ void HLIRModule::findExternalValues_(Function* f,
       for(Value* vi : ii.operands()){
         if(Instruction* ij = dyn_cast<Instruction>(vi)){
           if(ij->getParent()->getParent() != f){
-            if(!ij->getName().startswith("index.ptr")){
-              v.push_back(ij);
-            }
+            v.push_back(ij);
           }
         }
       }
@@ -332,8 +330,6 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
     for(size_t i = 0; i < rvs.size(); ++i){
       Value* vi = rvs[i];
 
-      vi->dump();
-
       Value* ri = vi;
       for(;;){
         auto ritr = replacedMap.find(ri);
@@ -361,7 +357,7 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
   getFunction("__ares_queue_func",
               {voidPtrTy, voidPtrTy, voidPtrTy, i32Ty, i32Ty});
 
-  Function* awaitFunc = getFunction("__ares_await_synch", {voidPtrTy});
+  Function* awaitFunc = getFunction("__ares_await_synch", {voidPtrTy}, i1Ty);
 
   FunctionType* ft =
     FunctionType::get(voidTy, {voidPtrTy}, false);
@@ -410,8 +406,34 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
   
   b.SetInsertPoint(exitBlock);
 
-  b.CreateCall(awaitFunc, {synchPtr});
+#ifdef USE_ARGOBOTS
+  BasicBlock* mergeBlock = BasicBlock::Create(c, "merge.block", func);
+  BasicBlock* yieldBlock = BasicBlock::Create(c, "yield.block", func);
+  BasicBlock* yieldLoopBlock = BasicBlock::Create(c, "yield.loop.block", func);
   
+  b.CreateBr(yieldLoopBlock);
+
+  b.SetInsertPoint(yieldLoopBlock);
+
+  Value* done = b.CreateCall(awaitFunc, {synchPtr});
+
+  cond = b.CreateICmpNE(done, ConstantInt::get(i1Ty, 0));
+
+  b.CreateCondBr(cond, mergeBlock, yieldBlock);
+
+  b.SetInsertPoint(yieldBlock);
+
+  Function* yieldFunc = getFunction("__ares_thread_yield", TypeVec());
+    
+  b.CreateCall(yieldFunc);
+
+  b.CreateBr(yieldLoopBlock);
+
+  b.SetInsertPoint(mergeBlock);
+#else
+  b.CreateCall(awaitFunc, {synchPtr});
+#endif
+
   b.CreateBr(blockAfter);
 
   for(HLIRParallelFor* pf : ps){
@@ -810,7 +832,7 @@ void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
   
   b.SetInsertPoint(exitBlock);
 
-  Function* awaitFunc = getFunction("__ares_await_synch", {voidPtrTy});
+  Function* awaitFunc = getFunction("__ares_await_synch", {voidPtrTy}, i1Ty);
 
   b.CreateCall(awaitFunc, {synchPtr});
   
