@@ -1010,7 +1010,8 @@ namespace ares{
     
     void lowerParallelFor_(HLIRParallelFor* pfor,
                            llvm::StructType* argsType,
-                           std::unordered_map<llvm::Value*, size_t>& capturedMap);
+                           std::unordered_map<llvm::Value*, size_t>& capturedMap,
+                           std::unordered_map<llvm::Value*, llvm::Value*>& replacedMap);
 
     void lowerParallelReduce_(HLIRParallelReduce* reduce);
 

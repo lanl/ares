@@ -189,7 +189,9 @@ void HLIRModule::findExternalValues_(Function* f,
       for(Value* vi : ii.operands()){
         if(Instruction* ij = dyn_cast<Instruction>(vi)){
           if(ij->getParent()->getParent() != f){
-            v.push_back(ij);
+            if(!ij->getName().startswith("index.ptr")){
+              v.push_back(ij);
+            }
           }
         }
       }
@@ -199,17 +201,27 @@ void HLIRModule::findExternalValues_(Function* f,
 
 void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
                                    StructType* argsType,
-                                   unordered_map<Value*, size_t>& capturedMap){
+                                   unordered_map<Value*, size_t>& capturedMap,
+                                   unordered_map<Value*, Value*>& replacedMap){
 
   auto& c = module_->getContext();
   IRBuilder<> b(c);
 
+  // marker is the caller
   auto marker = pf->get<HLIRInstruction>("marker");
   BasicBlock* block = marker->getParent();
+
+  // already handled as a nested case
+  if(!block){
+    return;
+  }
+
   Function* func = block->getParent();
 
+  // top-level parallel for - (not nested)
   bool top = !func->getName().startswith("hlir.parallel_for.body");
 
+  // this will be handled as a nested parallel for later from the top
   if(!top && !argsType){
     return;
   }
@@ -226,8 +238,9 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
   vector<HLIRParallelFor*> ps;
   vector<HLIRParallelReduce*> rs;
 
-  findExternalValues_(pf->body(), vs, true, false, ps, rs);
+  findExternalValues_(pf->body(), vs, false, true, ps, rs);
 
+  // create the struct of all fields used recursively
   if(top){
     TypeVec fields;
     size_t i = 0;
@@ -240,31 +253,63 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
     argsType = StructType::create(c, fields, "struct.func_args");
   }
  
+  // the point within the called parallel for to begin codegen / unwrap args
   auto argsInsertion = pf->get<HLIRInstruction>("argsInsertion");
   b.SetInsertPoint(argsInsertion); 
 
   Value* argsStructPtr = 
     b.CreateBitCast(pf->args(), PointerType::get(argsType, 0));
 
-  for(Instruction* vi : vs){    
+  // find the values that need to be remapped from the struct GEP
+  for(Instruction* vi : rvs){    
     Value* ri = nullptr;
 
     for(Use& u : vi->uses()){
       User* user = u.getUser();
 
       auto inst = dyn_cast<Instruction>(user);
-      
-      if(inst && inst->getParent()->getParent() == pf->body()){
-        auto itr = capturedMap.find(vi);
-        assert(itr != capturedMap.end());
-        size_t index = itr->second;
 
+      bool found = false;
+
+      auto parent = inst->getParent()->getParent();
+
+      if(inst){
+        if(parent == pf->body()){
+          found = true;
+        }
+        else{
+          for(auto pfi : rps){
+            if(parent == pfi->body()){
+              found = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if(found){
         if(!ri){
+          Value* vr = vi;
+          for(;;){
+            auto ritr = replacedMap.find(vr);
+            if(ritr != replacedMap.end()){
+              vr = ritr->second;
+            }
+            else{
+              break;
+            }
+          }
+
+          auto itr = capturedMap.find(vr);
+          assert(itr != capturedMap.end());
+          size_t index = itr->second;
+
           Value* gi = b.CreateStructGEP(argsType, argsStructPtr, index);
           ri = b.CreateLoad(gi, vi->getName());
         }
 
         user->replaceUsesOfWith(vi, ri);
+        replacedMap.emplace(ri, vi);
       }
     }
   }
@@ -273,10 +318,40 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
 
   Value* argsPtr = b.CreateAlloca(argsType);
 
-  for(size_t i = 0; i < vs.size(); ++i){
-    Value* vi = vs[i];
-    Value* pi = b.CreateStructGEP(argsType, argsPtr, i);
-    b.CreateStore(vi, pi);    
+  if(top){
+    for(auto& itr : capturedMap){
+      Instruction* ri = dyn_cast<Instruction>(itr.first);
+
+      if(ri && ri->getParent()->getParent() == marker->getParent()->getParent()){
+        Value* pi = b.CreateStructGEP(argsType, argsPtr, itr.second);
+        b.CreateStore(itr.first, pi);
+      }
+    }
+  }
+  else{
+    for(size_t i = 0; i < rvs.size(); ++i){
+      Value* vi = rvs[i];
+
+      vi->dump();
+
+      Value* ri = vi;
+      for(;;){
+        auto ritr = replacedMap.find(ri);
+        if(ritr != replacedMap.end()){
+          ri = ritr->second;
+        }
+        else{
+          break;
+        }
+      }
+
+      auto itr = capturedMap.find(ri);
+      assert(itr != capturedMap.end());
+      size_t index = itr->second;
+
+      Value* pi = b.CreateStructGEP(argsType, argsPtr, index);
+      b.CreateStore(vi, pi);    
+    }
   }
 
   Function* createSynchFunc = 
@@ -330,7 +405,7 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
   BasicBlock* blockAfter = block->splitBasicBlock(*marker, "pfor.merge");
 
   block->getTerminator()->removeFromParent();
-  
+
   marker->removeFromParent();
   
   b.SetInsertPoint(exitBlock);
@@ -339,7 +414,11 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
   
   b.CreateBr(blockAfter);
 
-  //bodyFunc->for_);
+  for(HLIRParallelFor* pf : ps){
+    lowerParallelFor_(pf, argsType, capturedMap, replacedMap);
+  }
+
+  //pf->body()->dump();
 }
 
 void HLIRModule::lowerParallelReduce_(HLIRParallelReduce* r){
@@ -880,7 +959,8 @@ bool HLIRModule::lowerToIR_(){
     HLIRConstruct* c = itr.second;
     if(auto pfor = dynamic_cast<HLIRParallelFor*>(c)){
       unordered_map<Value*, size_t> m;
-      lowerParallelFor_(pfor, nullptr, m);
+      unordered_map<Value*, Value*> rm;
+      lowerParallelFor_(pfor, nullptr, m, rm);
     }
     else if(auto r = dynamic_cast<HLIRParallelReduce*>(c)){
       lowerParallelReduce_(r);
