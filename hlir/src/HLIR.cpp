@@ -259,7 +259,9 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
     b.CreateBitCast(pf->args(), PointerType::get(argsType, 0));
 
   // find the values that need to be remapped from the struct GEP
-  for(Instruction* vi : rvs){    
+  for(Instruction* vi : rvs){
+    bool local = vi->getParent()->getParent() == pf->body();
+
     Value* ri = nullptr;
 
     for(Use& u : vi->uses()){
@@ -285,7 +287,7 @@ void HLIRModule::lowerParallelFor_(HLIRParallelFor* pf,
         }
       }
 
-      if(found){
+      if(found && !local){
         if(!ri){
           Value* vr = vi;
           for(;;){

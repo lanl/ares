@@ -1,6 +1,7 @@
 add_subdirectory(barrier)
 add_subdirectory(comm1)
 add_subdirectory(forall)
+add_subdirectory(forall-nested)
 add_subdirectory(reduce)
 add_subdirectory(task-fib)
 add_subdirectory(mesh)
