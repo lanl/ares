@@ -11,19 +11,67 @@
 \documentclass[12pt]{article}
 
 \usepackage{graphicx}
+\usepackage{listings}
+\usepackage{textcomp}
+\usepackage{color}
+\usepackage{cite}
+
+\definecolor{listinggray}{gray}{0.9}
+\definecolor{lbcolor}{rgb}{0.9,0.9,0.9}
+
+\lstdefinestyle{C++}{
+backgroundcolor=\color{lbcolor},
+    tabsize=4,    
+%   rulecolor=,
+    language=[GNU]C++,
+        basicstyle=\scriptsize,
+        upquote=true,
+        aboveskip={1.5\baselineskip},
+        columns=fixed,
+        showstringspaces=false,
+        extendedchars=false,
+        breaklines=true,
+        prebreak = \raisebox{0ex}[0ex][0ex]{\ensuremath{\hookleftarrow}},
+        frame=single,
+        numbers=left,
+        showtabs=false,
+        showspaces=false,
+        showstringspaces=false,
+        identifierstyle=\ttfamily,
+        keywordstyle=\color[rgb]{0,0,1},
+        commentstyle=\color[rgb]{0.026,0.112,0.095},
+        stringstyle=\color[rgb]{0.627,0.126,0.941},
+        numberstyle=\color[rgb]{0.205, 0.142, 0.73},
+%        \lstdefinestyle{C++}{language=C++,style=numbers}’.
+}
+
+\lstdefinestyle{IR}{
+   breaklines=true,
+   basicstyle=\ttfamily
+}
 
 \begin{document}
 \maketitle
 
-\section{Overview}
+\section{Introduction}
 
-The high level intermediate representation (HLIR) is a superset of a low-level sequential IR -- LLVM IR in our case. HLIR extends LLVM IR to allow parallel and other constructs to be readily captured/represented and conveniently manipulated. Remaining language-independent, multiple compiler front-ends could target HLIR to describe common parallel features of codes such as concurrency, tasks, parallel for loops, communication directives, memory locality, data layout, code structure, and more. Our HLIR, addressing some of the deficiencies of LLVM IR that make it difficult for describing parallel constructs at a more abstract level, adds a flexible and expressive hierarchical high-level representation that is capable of capturing recursive definitions and attributes that cannot be readily represented in a traditional IR. One of the ways HLIR achieves this is by embedding metadata and notional intrinsics into the traditional IR that can refer back to HLIR portions, and vice versa.
+The ARES project (Abstract Representations for the Extreme-Scale Stack) aims to create a set of interoperable tools and approaches that can be leveraged by the high performance computing community to explore and incrementally move towards more effective methods for programming next-generation architectures. The High Level Intermediate Representation (HLIR), a cornerstone of this effort, provides a common representation that compiler front-ends can conveniently target to implement parallel programming constructs such as: parallel for and reduce, communication and synchronization, tasks, and more. By leveraging a common code generation and runtime system, compiler authors can reap the benefits of a refined and optimized system while working with such parallel concepts at a higher level, leaving the exact code lowering and performance tuning to the HLIR system.
+
+HLIR, building on LLVM IR, addresses some of the deficiencies that make it unsuitable for representing such constructs at a more abstract level, recursively, and in a way that is more amenable to optimizations, both localized and module-wide. HLIR operates seamlessly with LLVM and provides various interfaces for the compiler writer to control the code generation process. For example, HLIR will set up an LLIR function for the body of a parallel for or reduce and provides entry points for the compiler to specify that body and will automatically take care of the details of capturing any needed data used. In this way, the HLIR system can be highly customized while automating the generation of much of the needed details to finalize and lower a parallel for or reduce, task, or communication directive including parallel launching and synchronization.
+
+Several motivating factors have contributed to our need for a higher-level IR. Traditionally, IR's, including LLVM IR are a stream of low-level instructions -- their role is to provide instructions in a form that is low-level enough to be closely mapped to the underlying hardware but high-level enough such that certain architectural differences are abstracted. Such an IR typically provides no structure to bundle/aggregate meaning or domain awareness. Typically, going from an AST to an IR, entails a loss of information such as when code-generating a loop to such an IR, the meaning of the loop's components, its body, induction variable, terminating condition, and so on, are not retained. While it is possible to reconstruct loops by analyzing the IR and looking for certain features and patterns -- LLVM does in fact provide such facilities, on the other hand, for more complex constructs such as a parallel for, this can be more problematic and we lose vital information that we need to properly optimize.
+
+One of the key advantages of our system is the ease at which parallel constructs can be created and how the system interoperates with and ties back to LLVM. In contrast with LLVM's standard metadata system, which is the prevalent way of achieving such functionality, using a metadata approach requires significant amount of ``glue'' code. For example, this typically involves representing structures with an id then capturing this id in the metadata. More problematic, is that LLVM metadata gets discarded as it is passed through various optimization stages/passes. HLIR data, on the other hand, is persistent throughout the compilation and we can attach arbitrary data to it via attribute fields and pointers. HLIR like LLIR, for development purposes, has a convenient textual representation. To retrieve or create an HLIR module, pass a pointer to an LLIR module. From the module, a client may then create any of the top-level HLIR constructs, e.g: parallel for/reduce, tasks, communication, etc. Designated markers allow a task, or parallel/for body to be defined, and attributes or LLIR values associated with a specific parallel construct, such as: thread index, induction variables, reduction variables, etc. can be specified or retrieved.
+
+\section{Background}
+
+The high level intermediate representation (HLIR) is a superset of a low-level sequential IR -- LLVM IR in our case. HLIR extends LLVM IR to allow parallel and other constructs to be readily captured/represented and conveniently manipulated. Remaining language-independent, multiple compiler front-ends could target HLIR to describe common parallel features of codes such as concurrency, tasks, parallel for loops, communication directives, memory locality, data layout, code structure, and more. Our HLIR adds a flexible and expressive hierarchical high-level representation to LLIR that is capable of capturing recursive definitions and attributes that cannot be readily represented in a traditional IR. One of the ways HLIR achieves this is by embedding metadata and notional intrinsics into the traditional IR that can refer back to HLIR portions, and vice versa.
 
 HLIR is used by both the front-ends who use it to initially conveniently capture the semantics of a parallel construct and as an intermediate representation internally in HLIR's own transformation and optimization stages until it is finally lowered into ordinary LLVM IR which can then take advantage of existing LLVM optimizations and backends.
 
 \subsection{LLVM}
 
-LLVM is a relatively recently developed intermediate representation and compilation toolchain designed for flexibility by allowing multiple front-ends and target architectures, modularity by separating various analyses and transformations into discrete passes, and extensibility by allowing developers to readily insert their own analysis and transformation passes. LLVM has already been widely adopted for both research activities and industrial-strength compiler toolchains, and as such is the logical choice on which to build.
+LLVM is a relatively recently developed intermediate representation and compilation toolchain designed for flexibility, optimization, type-safety, and machine independence by allowing multiple front-ends and target architectures, modularity by separating various analyses and transformations into discrete passes, and extensibility by allowing developers to readily insert their own analysis and transformation passes. LLVM has already been widely adopted for both research activities and industrial-strength compiler toolchains, and as such is the logical choice on which to build.
 
 LLVM IR (LLIR) can be viewed as a machine-independent or universal assembly language and is used to encode the sequential semantics in our HLIR. LLVM backends for different native targets translate LLVM IR into native machine code. For example, the same LLIR can be used to produce code for conventional CPUs or GPUs, in some cases, by performing minor modifications on the IR for each target.
 
@@ -91,6 +139,10 @@ In this section, we describe at a high-level how HLIR is used to represent speci
 
 Under such a section, there exists a type specifier that indicates that such a section is a task construct, for example. Then for each parallel construct type, there are a number of required or optional attributes and an imposed structure for that particular type.
 
+\subsubsection{Thread Pooling and Data Capturing}
+
+Our tasking and parallel for/reduce mechanism relies upon bundling up the body of such constructs into an IR function which is code generated and queued to a common thread pool. The queued function is passed runtime arguments such as priority and synchronization objects as well as application-specific structures that capture any non-local data that the body uses. From the perspective of a client leveraging a parallel construct, capturing happens automatically, with the complexity deferred to the HLIR lowering pass. This means that when performing the code generation for a parallel construct, the code generator can ignore that such values were declared in an outer or persistent scope. To accomplish data capturing, the HLIR pass detects which IR values are referenced within the body function but which are defined externally. It creates a {\tt struct} for those values and any references to those values are translated to offsets or {\tt GEP} instructions into this struct.  
+
 \subsubsection{Tasks}
 
 A task is much like an ordinary function in LLIR, but adheres to a contract in the way it uses its inputs/outputs and is restricted in how it uses global state because tasks are designed to be launched asynchronously and run in parallel. A task has an associated future in which is {\it forced} or waited upon when the associated value of the future is later used. An HLIR task section tracks several pieces of information associated with it: it records the future(s), and potentially later: read/write permissions of input/output parameters (perhaps as gathered or determined by an HLIR analysis pass), and so on.
@@ -99,13 +151,21 @@ HLIR allows us to create a dependency graph of the data and read/write usage of 
 
 \subsubsection{Parallel For}
 
-Parallel for is one example of how we use a fragment (HLIR function node) of LLVM IR to mark and encode the body of the parallel for. Parallel for loops are denoted in IR as an intrinsic ({\tt hlir.parallel} for) with metadata that links back to the appropriate HLIR section, where the body has been lifted into an LLVM function, and records other dependency and variable usage similar to a task. Much like a task, the parallel for HLIR section also records which variables as read/write within the loop.
+Parallel for is one example of how we use a fragment (HLIR function node) of LLVM IR to mark and encode the body of the parallel for. Parallel for loops are denoted in IR as an intrinsic ({\tt hlir.parallel.for}) with metadata that links back to the appropriate HLIR section, where the body has been lifted into an LLVM function, and records other dependency and variable usage similar to a task. Much like a task, the parallel for HLIR section also records which variables as read/write within the loop.
 
 One of our potential front-ends for HLIR is Kokkos, which includes a parallel for construct whereby a lambda or function or specified. In the Scout language for have a similar construct, forall for operating on entities of a computational mesh in parallel. Parallel for is a common idiom seen across many parallel languages. By targeting HLIR to encode the semantics of a parallel for, we can take advantage of common representation by which multiple front-ends target a common HLIR parallel for then within HLIR varying backends and specific runtimes can be utilized, taking advantage of a lowering process which has been thoroughly optimized to execute on a broad range of potential targets, including: GPU, threads, distributed, etc.
+
+\subsubsection{Parallel Reduce}
+
+From the perspective of code generation and HLIR-wise, a parallel reduce is much like a parallel for. We generate an LLIR function corresponding to the body of the parallel reduce and perform capturing of any referenced data. The difference being that within the body we have a reduction operator and on the left-hand-side and are producing some value on the right-hand-side to either perform a sum or product. The reduce body gets passed in any captured data wrapped up into a struct and returns the value on the right-hand-side. We have implemented a reduction algorithm, which is also code-generated for performance reasons and the outermost part which gets queued to $M$ threads in the thread pool and each of these calls into the body function and computes partial sums (or products) on a slice of the index space. After computing the partial sums, the reduce algorithm combines the partial sums in an order $\lg(n)$ fashion.
 
 \subsubsection{Communication}
 
 Communication directives use intrinsics and metadata linked back to HLIR sections to capture the semantics but not implementation details of communication patterns. They could ultimately, internally code generate to use varying targets such as MPI, GasNet, or Realm, for example. For this reason, they capture enough metadata about variables and their associated address spaces (the HLIR address space section) so that the lower level code generation phase can target a specific implementation or runtime layer with little configuration in the parallel compiler's targeting to HLIR.
+
+\subsection{Runtime Implementation}
+
+\subsubsection{Argobots Thread Pool}
 
 \section{HLIR Usage and Implementation}
 
@@ -154,5 +214,49 @@ Our runtime is a C-based ABI interface whose implementation is in C++. The runti
 
 One of the major benefits of HLIR is that it provides high-level constructs and a convenient interface for interfacing with LLIR. The HLIR module pass is responsible for transforming an HLIR module and LLIR IR which ties to the HLIR module with metadata and intrinsics into ordinary LLIR with calls to our runtime. The lowering process is nearly automatic, and the creator of a front-end targeting HLIR need not be aware of the internal details, only a familiarity with the HLIR interface we provide.
 For example, all that is required of the front-end in targeting tasks is to specify that a certain LLIR function is a task by creating an {\tt HLIRTask} on the {\tt HLIRModule}, then the runtime handles the details of transforming calls to that function into task launches and awaiting futures when that future's value is required in LLIR.
+
+\subsection{Frontend}
+
+We have implemented a Clang-based C++ frontend with ARES-specific extensions to support parallel for/reduce, and tasks. The following code sections briefly demonstrate various usages of these constructs.
+
+\subsubsection{Tasks}
+
+The {\tt task} keyword is placed at the beginning of a function declaration to mark it as a task, as this example that computes the n-the Fibonacci number in parallel demonstrates:
+
+\begin{lstlisting}[style=C++]
+task int fib(int i){
+  if(i <= 1){
+    return i;
+  }
+
+  return fib(i - 1) + fib(i - 2);
+}
+\end{lstlisting}
+
+As task is then invoked as if it were a normal function.
+
+\subsubsection{Parallel For}
+
+\begin{lstlisting}[style=C++]
+float A[SIZE];
+
+for(auto i : Forall(0, SIZE)){
+  A[i] = i;
+}
+\end{lstlisting}
+
+\subsubsection{Parallel Reduce}
+
+\begin{lstlisting}[style=C++]
+float sum = 0.0;
+
+for(auto i : ReduceAll(0, SIZE, sum)){
+  sum += 1.0;
+}
+\end{lstlisting}
+
+\subsubsection{Communication Directives}
+
+We currently do not have any frontend extensions pertaining to communication as the functionality required is easily achieved as normal functions.
 
 \end{document}
