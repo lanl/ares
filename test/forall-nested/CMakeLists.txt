@@ -12,6 +12,6 @@ add_executable(forall-nested main.cpp)
 
 link_directories(${PROJECT_BINARY_DIR}/runtime)
 
-target_link_libraries(forall-nested ares_runtime /Users/nickm/argo/install/lib/libabt.a)
+target_link_libraries(forall-nested ares_runtime) #/Users/nickm/argo/install/lib/libabt.a)
 
 add_dependencies(forall-nested clang)
