@@ -56,7 +56,7 @@
 
 #include <mutex>
 
-#define USE_ARGOBOTS 1
+//#define USE_ARGOBOTS 1
 
 using namespace std;
 using namespace llvm;
@@ -135,6 +135,7 @@ HLIRParallelReduce* HLIRModule::createParallelReduce(
 
 HLIRTask* HLIRModule::createTask(){
   auto task = new HLIRTask(this);
+  tasks_.push_back(task);
   
   string name = createName("task");
   task->setName(name);
@@ -922,11 +923,11 @@ void HLIRModule::lowerTask_(HLIRTask* task){
 
           b.SetInsertPoint(splitBlock);
 
+#ifdef USE_ARGOBOTS
+
           BasicBlock* loopBlock = BasicBlock::Create(c, "loop.block", parentFunc);
 
           b.CreateBr(loopBlock);
-
-#ifdef USE_ARGOBOTS
 
           BasicBlock* mergeBlock = BasicBlock::Create(c, "merge.block", parentFunc);
           BasicBlock* yieldBlock = BasicBlock::Create(c, "yield.block", parentFunc);
@@ -989,12 +990,13 @@ bool HLIRModule::lowerToIR_(){
     else if(auto r = dynamic_cast<HLIRParallelReduce*>(c)){
       lowerParallelReduce_(r);
     }
-    else if(auto task = dynamic_cast<HLIRTask*>(c)){
-      lowerTask_(task);
-    }
     else{
       assert(false && "unknown HLIR construct");
     }
+  }
+
+  for(HLIRTask* t : tasks_){
+    lowerTask_(t);
   }
 
   //cerr << "---------- final module" << endl;

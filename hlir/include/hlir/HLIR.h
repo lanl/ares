@@ -1064,6 +1064,7 @@ namespace ares{
     llvm::IRBuilder<> builder_;
 
     std::unordered_map<llvm::Instruction*, HLIRConstruct*> constructMap_;
+    std::vector<HLIRTask*> tasks_;
   };
 
   class HLIRTaskParam : public HLIRMap{
